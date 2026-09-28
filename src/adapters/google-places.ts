@@ -89,7 +89,11 @@ export interface QuotaReserver {
 
 /** The QuotaGuard refused: the job must pause, not retry. */
 export class QuotaDeniedError extends Error {
-  constructor(public readonly reason: DenyReason) {
+  constructor(
+    public readonly reason: DenyReason,
+    /** Places from pages that were already fetched (and paid for) before the refusal. */
+    public readonly partialPlaces: GooglePlace[] = [],
+  ) {
     super(`Google request not allowed by the quota guard: ${reason}`);
     this.name = 'QuotaDeniedError';
   }
@@ -297,7 +301,17 @@ export class GooglePlacesClient {
     let pages = 0;
     let attempts = 0;
     do {
-      const page: SearchPage = await this.searchPage(query, token ?? undefined);
+      let page: SearchPage;
+      try {
+        page = await this.searchPage(query, token ?? undefined);
+      } catch (err) {
+        // Quota ran out on page 2 or 3: hand back what page 1 (and 2) already returned,
+        // so requests that were counted are never wasted.
+        if (err instanceof QuotaDeniedError && places.length > 0) {
+          throw new QuotaDeniedError(err.reason, places);
+        }
+        throw err;
+      }
       pages += 1;
       attempts += page.attempts;
       places.push(...page.places);

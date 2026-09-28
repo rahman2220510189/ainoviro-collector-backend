@@ -8,7 +8,8 @@ import {
   type QuotaReserver,
 } from '../adapters/google-places';
 import { COOLDOWN_NOTE, MAX_SPLIT_DEPTH, queryLogTileKey, tileBox } from './keys';
-import { writeGooglePlaces } from './place-writer';
+import type { CityResolver } from '../cleaning/city';
+import { writeGooglePlaces, type PlaceWriteContext } from './place-writer';
 import * as store from './task-store';
 import type { ClaimedTask } from './task-store';
 
@@ -20,6 +21,8 @@ export interface DiscoveryContext {
   quotaProvider: string;
   /** 0 disables the cooldown. */
   cooldownDays: number;
+  /** City lookup per country (cached by the caller). */
+  cities: (countryCode: string) => Promise<CityResolver>;
   log: Logger;
 }
 
@@ -31,8 +34,15 @@ export interface DiscoveryContext {
  */
 export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask): Promise<void> {
   const tileKey = queryLogTileKey(task.tile.mode, task.tile.areaKey, task.tile.path);
+  let writeContext: PlaceWriteContext = {
+    countryCode: task.tile.countryCode,
+    cityId: task.tile.cityId,
+    subcategoryId: task.subcategoryId,
+    keyword: task.keyword,
+  };
 
   try {
+    writeContext = { ...writeContext, cities: await ctx.cities(task.tile.countryCode) };
     const coolingDown =
       !task.tile.forceRerun &&
       ctx.cooldownDays > 0 &&
@@ -61,12 +71,7 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
         bbox: tileBox(task.tile),
       });
 
-      const written = await writeGooglePlaces(ctx.db, result.places, {
-        countryCode: task.tile.countryCode,
-        cityId: task.tile.cityId,
-        subcategoryId: task.subcategoryId,
-        keyword: task.keyword,
-      });
+      const written = await writeGooglePlaces(ctx.db, result.places, writeContext);
 
       if (result.saturated && task.depth < MAX_SPLIT_DEPTH) {
         const created = await store.createChildTasks(ctx.db, task, splitBbox(tileBox(task.tile)));
@@ -97,6 +102,18 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
     }
   } catch (err) {
     if (err instanceof QuotaDeniedError) {
+      if (err.partialPlaces.length > 0) {
+        // Keep the pages that were already paid for. The task itself stays DEFERRED and
+        // runs again from page 1 on resume; the upsert makes the repeat harmless.
+        try {
+          const kept = await writeGooglePlaces(ctx.db, err.partialPlaces, writeContext);
+          await store.addEvent(ctx.db, task.jobId, 'INFO', 'partial_results_saved',
+            `Quota ran out during "${task.keyword}"; saved ${err.partialPlaces.length} results already fetched`,
+            { taskId: task.id, inserted: kept.inserted });
+        } catch (saveErr) {
+          ctx.log.error({ taskId: task.id, err: saveErr }, 'Could not save partial results');
+        }
+      }
       await store.deferTask(ctx.db, task.id);
       if (await store.pauseJobForQuota(ctx.db, task.jobId)) {
         await store.addEvent(ctx.db, task.jobId, 'WARN', 'job_paused_quota',

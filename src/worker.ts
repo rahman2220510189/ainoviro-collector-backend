@@ -6,6 +6,7 @@
  */
 import { Pool } from 'pg';
 import { EnvValidationError, loadEnv } from './config/env';
+import { DEFAULT_NEAREST_CITY_KM, loadCityResolver, type CityResolver } from './cleaning/city';
 import { createPrismaClient } from './db/prisma';
 import { runDiscoveryTask, type DiscoveryContext } from './jobs/discovery';
 import { MOCK_QUOTA_PROVIDER, runModeFor } from './jobs/keys';
@@ -48,6 +49,21 @@ async function main(): Promise<void> {
   const quota = new QuotaGuard(prisma, await loadQuotaSettings(prisma));
   const searchSettings = await loadSearchSettings(prisma);
 
+  // One city lookup per country, loaded on first use and kept for the worker's lifetime.
+  const cityCache = new Map<string, Promise<CityResolver>>();
+  const cities = (countryCode: string): Promise<CityResolver> => {
+    let cached = cityCache.get(countryCode);
+    if (!cached) {
+      cached = loadCityResolver(pool, countryCode, {
+        minCityPopulation: searchSettings.minCityPopulation,
+        maxNearestKm: DEFAULT_NEAREST_CITY_KM,
+      });
+      cached.catch(() => cityCache.delete(countryCode));
+      cityCache.set(countryCode, cached);
+    }
+    return cached;
+  };
+
   const ctx: DiscoveryContext = {
     db: pool,
     quota,
@@ -55,6 +71,7 @@ async function main(): Promise<void> {
     baseUrl: env.GOOGLE_PLACES_BASE_URL,
     quotaProvider: mode === 'LIVE' ? GOOGLE_PROVIDER : MOCK_QUOTA_PROVIDER,
     cooldownDays: searchSettings.cooldownDays,
+    cities,
     log,
   };
 

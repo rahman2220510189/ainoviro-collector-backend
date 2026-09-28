@@ -1,5 +1,5 @@
 import type { Bbox } from '../geonames/build';
-
+import { normalizeBusinessName } from '../cleaning/name';
 export const OFFICIAL_GOOGLE_BASE_URL = 'https://places.googleapis.com';
 /** Separate quota counter for the mock, so development never uses the real allowance. */
 export const MOCK_QUOTA_PROVIDER = 'google_places_mock';
@@ -74,9 +74,9 @@ export function tileBox(tile: TaskTile): Bbox {
   return { south: tile.south, west: tile.west, north: tile.north, east: tile.east };
 }
 
-/** Lowercase, accents removed, single spaces (full legal-suffix cleaning is Phase 2). */
+/** Matching form of a business name (kept here for older imports; see cleaning/name.ts). */
 export function normalizeName(name: string): string {
-  return name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return normalizeBusinessName(name);
 }
 
 /** "https://www.Shop.cy/about" -> "shop.cy"; null when missing or invalid. */

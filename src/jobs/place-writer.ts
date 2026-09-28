@@ -1,18 +1,54 @@
 import type { Pool } from 'pg';
 import type { GooglePlace } from '../adapters/google-places';
-import { normalizeName, websiteDomainOf } from './keys';
+import type { CityResolver } from '../cleaning/city';
+import { normalizePlaceFields, type NormalizedPlaceFields } from '../cleaning/normalize-place';
 
 export interface PlaceWriteContext {
   countryCode: string;
+  /** City of the search area (null for rural areas); fallback when coordinates give no city. */
   cityId: number | null;
   subcategoryId: number;
   keyword: string;
+  /** Decides the real city from coordinates. Without it the area's city is used. */
+  cities?: CityResolver | null;
 }
 
 export interface PlaceWriteResult {
   inserted: number;
   updated: number;
   skippedClosed: number;
+}
+
+export interface PreparedPlace {
+  place: GooglePlace;
+  fields: NormalizedPlaceFields;
+}
+
+/**
+ * Drops permanently closed places and duplicates inside one result list, and
+ * cleans every place (website, own domain, phone E.164, matching name, city).
+ */
+export function prepareGooglePlaces(
+  results: GooglePlace[],
+  ctx: PlaceWriteContext,
+): { prepared: PreparedPlace[]; skippedClosed: number } {
+  const open = results.filter((p) => p.businessStatus !== 'CLOSED_PERMANENTLY');
+  // The same place twice in one statement would break ON CONFLICT DO UPDATE.
+  const unique = [...new Map(open.map((p) => [p.googlePlaceId, p])).values()];
+  const prepared = unique.map((place) => {
+    const fields = normalizePlaceFields(
+      {
+        name: place.name,
+        website: place.website,
+        phone: place.phoneInternational ?? place.phoneNational,
+        lat: place.lat,
+        lng: place.lng,
+      },
+      { countryCode: ctx.countryCode, cities: ctx.cities ?? null, fallbackCityId: ctx.cityId },
+    );
+    return { place, fields };
+  });
+  return { prepared, skippedClosed: results.length - open.length };
 }
 
 /**
@@ -25,11 +61,9 @@ export async function writeGooglePlaces(
   results: GooglePlace[],
   ctx: PlaceWriteContext,
 ): Promise<PlaceWriteResult> {
-  const open = results.filter((p) => p.businessStatus !== 'CLOSED_PERMANENTLY');
-  // The same place twice in one statement would break ON CONFLICT DO UPDATE.
-  const unique = [...new Map(open.map((p) => [p.googlePlaceId, p])).values()];
-  const result: PlaceWriteResult = { inserted: 0, updated: 0, skippedClosed: results.length - open.length };
-  if (unique.length === 0) return result;
+  const { prepared, skippedClosed } = prepareGooglePlaces(results, ctx);
+  const result: PlaceWriteResult = { inserted: 0, updated: 0, skippedClosed };
+  if (prepared.length === 0) return result;
 
   const client = await db.connect();
   try {
@@ -37,28 +71,37 @@ export async function writeGooglePlaces(
 
     const saved = await client.query<{ id: number; google_place_id: string; inserted: boolean }>(
       `INSERT INTO places (
-         google_place_id, name, name_normalized, country_code, city_id, address, lat, lng,
-         website, website_domain, phone_raw, business_status, rating, rating_count,
+         google_place_id, name, name_normalized, country_code, city_id, city_name, address, lat, lng,
+         website, website_domain, phone_raw, phone_e164, phone_valid, business_status, rating, rating_count,
          google_fetched_at, last_seen_at, updated_at
        )
-       SELECT u.gid, u.name, u.name_normalized, u.country_code, u.city_id, u.address, u.lat, u.lng,
-              u.website, u.website_domain, u.phone, u.business_status::business_status, u.rating, u.rating_count,
+       SELECT u.gid, u.name, u.name_normalized, u.country_code, u.city_id, u.city_name, u.address, u.lat, u.lng,
+              u.website, u.website_domain, u.phone_raw, u.phone_e164, u.phone_valid,
+              u.business_status::business_status, u.rating, u.rating_count,
               now(), now(), now()
        FROM unnest(
-         $1::text[], $2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::float8[], $8::float8[],
-         $9::text[], $10::text[], $11::text[], $12::text[], $13::float8[], $14::int[]
-       ) AS u(gid, name, name_normalized, country_code, city_id, address, lat, lng,
-              website, website_domain, phone, business_status, rating, rating_count)
+         $1::text[], $2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::text[], $8::float8[],
+         $9::float8[], $10::text[], $11::text[], $12::text[], $13::text[], $14::bool[], $15::text[],
+         $16::float8[], $17::int[]
+       ) AS u(gid, name, name_normalized, country_code, city_id, city_name, address, lat, lng,
+              website, website_domain, phone_raw, phone_e164, phone_valid, business_status, rating, rating_count)
        ON CONFLICT (google_place_id) DO UPDATE SET
          name = EXCLUDED.name,
          name_normalized = EXCLUDED.name_normalized,
          address = EXCLUDED.address,
          lat = EXCLUDED.lat,
          lng = EXCLUDED.lng,
-         city_id = COALESCE(places.city_id, EXCLUDED.city_id),
+         city_id = COALESCE(EXCLUDED.city_id, places.city_id),
+         city_name = COALESCE(EXCLUDED.city_name, places.city_name),
          website = COALESCE(EXCLUDED.website, places.website),
-         website_domain = COALESCE(EXCLUDED.website_domain, places.website_domain),
+         -- A new website decides the domain (a platform link gives NULL on purpose).
+         website_domain = CASE WHEN EXCLUDED.website IS NOT NULL
+                               THEN EXCLUDED.website_domain ELSE places.website_domain END,
          phone_raw = COALESCE(EXCLUDED.phone_raw, places.phone_raw),
+         phone_e164 = CASE WHEN EXCLUDED.phone_raw IS NOT NULL
+                           THEN EXCLUDED.phone_e164 ELSE places.phone_e164 END,
+         phone_valid = CASE WHEN EXCLUDED.phone_raw IS NOT NULL
+                            THEN EXCLUDED.phone_valid ELSE places.phone_valid END,
          business_status = EXCLUDED.business_status,
          rating = EXCLUDED.rating,
          rating_count = EXCLUDED.rating_count,
@@ -67,20 +110,23 @@ export async function writeGooglePlaces(
          updated_at = now()
        RETURNING id, google_place_id, (xmax = 0) AS inserted`,
       [
-        unique.map((p) => p.googlePlaceId),
-        unique.map((p) => p.name || 'Unnamed'),
-        unique.map((p) => normalizeName(p.name || 'Unnamed')),
-        unique.map(() => ctx.countryCode),
-        unique.map(() => ctx.cityId),
-        unique.map((p) => p.address),
-        unique.map((p) => p.lat),
-        unique.map((p) => p.lng),
-        unique.map((p) => p.website),
-        unique.map((p) => websiteDomainOf(p.website)),
-        unique.map((p) => p.phoneInternational ?? p.phoneNational),
-        unique.map((p) => p.businessStatus),
-        unique.map((p) => p.rating),
-        unique.map((p) => p.ratingCount),
+        prepared.map((p) => p.place.googlePlaceId),
+        prepared.map((p) => p.fields.name),
+        prepared.map((p) => p.fields.nameNormalized),
+        prepared.map(() => ctx.countryCode),
+        prepared.map((p) => p.fields.city?.cityId ?? ctx.cityId),
+        prepared.map((p) => p.fields.city?.cityName ?? null),
+        prepared.map((p) => p.place.address),
+        prepared.map((p) => p.place.lat),
+        prepared.map((p) => p.place.lng),
+        prepared.map((p) => p.fields.website),
+        prepared.map((p) => p.fields.websiteDomain),
+        prepared.map((p) => p.fields.phoneRaw),
+        prepared.map((p) => p.fields.phoneE164),
+        prepared.map((p) => p.fields.phoneValid),
+        prepared.map((p) => p.place.businessStatus),
+        prepared.map((p) => p.place.rating),
+        prepared.map((p) => p.place.ratingCount),
       ],
     );
 
