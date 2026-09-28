@@ -1,0 +1,694 @@
+// Prisma schema for the ainoviro Lead Collector.
+// Prisma 7: connection URLs are NOT defined here.
+//   - CLI (migrations) reads DIRECT_URL via prisma.config.ts
+//   - The running app connects through the pg driver adapter (src/db/prisma.ts)
+//
+// Conventions:
+//   - Models are PascalCase; tables and columns are snake_case via @@map / @map.
+//   - All timestamps are stored as timestamptz (UTC).
+//   - Enum values are UPPER_CASE.
+//   - Extra CHECK constraints live in the migration SQL (Prisma cannot express them).
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "cjs"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum LocationType {
+  COUNTRY
+  REGION
+  CITY
+
+  @@map("location_type")
+}
+
+/// Kept generic so a future "user" lead phase needs no schema redesign.
+enum LeadType {
+  VENDOR
+  USER
+
+  @@map("lead_type")
+}
+
+enum SourceName {
+  GOOGLE_PLACES
+  OVERTURE
+  FOURSQUARE
+
+  @@map("source_name")
+}
+
+enum BusinessStatus {
+  OPERATIONAL
+  CLOSED_TEMPORARILY
+  CLOSED_PERMANENTLY
+  UNKNOWN
+
+  @@map("business_status")
+}
+
+/// Vendor funnel: new -> exported -> contacted -> replied -> onboarded -> product_added.
+enum PlaceStatus {
+  NEW
+  EXPORTED
+  CONTACTED
+  REPLIED
+  ONBOARDED
+  PRODUCT_ADDED
+  REJECTED
+
+  @@map("place_status")
+}
+
+enum EmailType {
+  GENERIC
+  PERSONAL
+
+  @@map("email_type")
+}
+
+enum EmailStatus {
+  NEW
+  EXPORTED
+  BOUNCED
+  UNSUBSCRIBED
+  REJECTED
+
+  @@map("email_status")
+}
+
+enum LawfulBasis {
+  LEGITIMATE_INTEREST_B2B
+  CONSENT
+  UNKNOWN
+
+  @@map("lawful_basis")
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBED
+  BOUNCED
+  EXISTING_CONTACT
+  EXISTING_VENDOR
+  MANUAL
+  ERASED
+
+  @@map("suppression_reason")
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  PAUSED_USER
+  PAUSED_QUOTA
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("job_status")
+}
+
+enum TaskKind {
+  DISCOVERY
+  CRAWL
+  CLEAN
+
+  @@map("task_kind")
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  DEFERRED
+  SKIPPED
+
+  @@map("task_status")
+}
+
+enum EventLevel {
+  INFO
+  WARN
+  ERROR
+
+  @@map("event_level")
+}
+
+enum CrawlStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  SKIPPED
+
+  @@map("crawl_status")
+}
+
+enum ExportBatchStatus {
+  ACTIVE
+  UNDONE
+
+  @@map("export_batch_status")
+}
+
+// =============================================================================
+// System: settings, admin users, audit log
+// =============================================================================
+
+/// Key-value application settings (quota limits, EUR rate, crawler options, ...).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("settings")
+}
+
+model AdminUser {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
+
+  jobs          Job[]
+  exportBatches ExportBatch[]
+  auditLogs     AuditLog[]
+
+  @@map("admin_users")
+}
+
+/// Who did what (exports, undo, erasure, place merges, settings changes).
+model AuditLog {
+  id         Int        @id @default(autoincrement())
+  actorId    Int?       @map("actor_id")
+  actor      AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String?    @map("entity_type")
+  entityId   String?    @map("entity_id")
+  details    Json?
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// =============================================================================
+// Categories and keywords
+// =============================================================================
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  /// Must match the live ainoviro site exactly (used in the CSV).
+  displayName String   @map("display_name")
+  sortOrder   Int      @default(0) @map("sort_order")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subcategories Subcategory[]
+
+  @@map("categories")
+}
+
+model Subcategory {
+  id          Int      @id @default(autoincrement())
+  categoryId  Int      @map("category_id")
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  slug        String
+  displayName String   @map("display_name")
+  sortOrder   Int      @default(0) @map("sort_order")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  keywords       SubcategoryKeyword[]
+  places         PlaceSubcategory[]
+  jobs           JobSubcategory[]
+  jobTasks       JobTask[]
+  sourceMappings SourceCategoryMap[]
+
+  @@unique([categoryId, slug])
+  @@map("subcategories")
+}
+
+/// Google Maps search keywords per subcategory and language (e.g. "yoga studio", "en").
+model SubcategoryKeyword {
+  id            Int         @id @default(autoincrement())
+  subcategoryId Int         @map("subcategory_id")
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  language      String      @db.VarChar(8)
+  keyword       String
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([subcategoryId, language, keyword])
+  @@map("subcategory_keywords")
+}
+
+/// Maps a dataset category (Overture / Foursquare) to one of our subcategories.
+model SourceCategoryMap {
+  id             Int         @id @default(autoincrement())
+  source         SourceName
+  sourceCategory String      @map("source_category")
+  subcategoryId  Int         @map("subcategory_id")
+  subcategory    Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  active         Boolean     @default(true)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([source, sourceCategory, subcategoryId])
+  @@map("source_category_map")
+}
+
+// =============================================================================
+// Locations (country -> region -> city), seeded from GeoNames
+// =============================================================================
+
+model Location {
+  id          Int          @id @default(autoincrement())
+  parentId    Int?         @map("parent_id")
+  parent      Location?    @relation("LocationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Location[]   @relation("LocationTree")
+  type        LocationType
+  name        String
+  nameLocal   String?      @map("name_local")
+  countryCode String       @map("country_code") @db.Char(2)
+  lat         Float?
+  lng         Float?
+  bboxSouth   Float?       @map("bbox_south")
+  bboxWest    Float?       @map("bbox_west")
+  bboxNorth   Float?       @map("bbox_north")
+  bboxEast    Float?       @map("bbox_east")
+  population  Int?
+  geonamesId  Int?         @unique @map("geonames_id")
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  places       Place[]
+  jobLocations JobLocation[]
+  jobTasks     JobTask[]
+  queryLogs    QueryLog[]
+
+  @@index([parentId])
+  @@index([countryCode, type])
+  @@map("locations")
+}
+
+// =============================================================================
+// Places (businesses) and where they came from
+// =============================================================================
+
+model Place {
+  id              Int            @id @default(autoincrement())
+  leadType        LeadType       @default(VENDOR) @map("lead_type")
+  name            String
+  /// Lowercase, accents and legal suffixes (Ltd, LLC, ΕΠΕ...) stripped; used for matching.
+  nameNormalized  String         @map("name_normalized")
+  countryCode     String         @map("country_code") @db.Char(2)
+  cityId          Int?           @map("city_id")
+  city            Location?      @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  cityName        String?        @map("city_name")
+  address         String?
+  lat             Float?
+  lng             Float?
+  website         String?
+  websiteDomain   String?        @map("website_domain")
+  phoneRaw        String?        @map("phone_raw")
+  /// Only set when the number is valid (E.164, e.g. +35799123456).
+  phoneE164       String?        @map("phone_e164")
+  phoneValid      Boolean        @default(false) @map("phone_valid")
+  googlePlaceId   String?        @unique @map("google_place_id")
+  overtureId      String?        @unique @map("overture_id")
+  fsqId           String?        @unique @map("fsq_id")
+  /// When Google-derived fields were last fetched (for retention / purge).
+  googleFetchedAt DateTime?      @map("google_fetched_at") @db.Timestamptz(3)
+  businessStatus  BusinessStatus @default(UNKNOWN) @map("business_status")
+  rating          Float?
+  ratingCount     Int?           @map("rating_count")
+  isChain         Boolean        @default(false) @map("is_chain")
+  score           Int            @default(0)
+  status          PlaceStatus    @default(NEW)
+  needsReview     Boolean        @default(false) @map("needs_review")
+  reviewReasons   String[]       @default([]) @map("review_reasons")
+  firstSeenAt     DateTime       @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime       @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  lastCrawledAt   DateTime?      @map("last_crawled_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sources       PlaceSource[]
+  subcategories PlaceSubcategory[]
+  emails        Email[]
+  exportItems   ExportBatchItem[]
+  jobTasks      JobTask[]
+
+  @@index([websiteDomain])
+  @@index([phoneE164])
+  @@index([cityId])
+  @@index([status])
+  @@index([needsReview])
+  @@index([countryCode, nameNormalized])
+  @@map("places")
+}
+
+/// One row per source record that contributed to a place (provenance).
+model PlaceSource {
+  id             Int        @id @default(autoincrement())
+  placeId        Int        @map("place_id")
+  place          Place      @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  source         SourceName
+  sourceRecordId String     @map("source_record_id")
+  fetchedAt      DateTime   @default(now()) @map("fetched_at") @db.Timestamptz(3)
+
+  @@unique([source, sourceRecordId])
+  @@index([placeId])
+  @@map("place_sources")
+}
+
+/// Many-to-many: a place can belong to several subcategories; one is primary for export.
+model PlaceSubcategory {
+  placeId        Int         @map("place_id")
+  place          Place       @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  subcategoryId  Int         @map("subcategory_id")
+  subcategory    Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Restrict)
+  matchedKeyword String?     @map("matched_keyword")
+  source         SourceName
+  isPrimary      Boolean     @default(false) @map("is_primary")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([placeId, subcategoryId])
+  @@index([subcategoryId])
+  // At most one primary subcategory per place.
+  @@unique([placeId, isPrimary], where: { isPrimary: true }, map: "place_subcategories_one_primary_per_place")
+  @@map("place_subcategories")
+}
+
+// =============================================================================
+// Emails and suppression
+// =============================================================================
+
+/// THE duplicate guarantee lives here: email_normalized is UNIQUE (plus a CHECK in SQL).
+model Email {
+  id              Int          @id @default(autoincrement())
+  /// As found on the website (original casing).
+  email           String
+  /// Trimmed + lowercase. UNIQUE across the whole table, all lead types.
+  emailNormalized String       @unique @map("email_normalized")
+  domain          String
+  placeId         Int?         @map("place_id")
+  place           Place?       @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  leadType        LeadType     @default(VENDOR) @map("lead_type")
+  isPrimary       Boolean      @default(false) @map("is_primary")
+  emailType       EmailType    @map("email_type")
+  isOwnDomain     Boolean      @default(false) @map("is_own_domain")
+  syntaxValid     Boolean      @default(false) @map("syntax_valid")
+  /// null = not checked yet.
+  mxValid         Boolean?     @map("mx_valid")
+  isDisposable    Boolean      @default(false) @map("is_disposable")
+  /// How it was found, e.g. "mailto", "text", "obfuscated", "cfemail", "jsonld", "import".
+  source          String
+  /// Page URL where the email was found.
+  sourceUrl       String?      @map("source_url")
+  seenCount       Int          @default(1) @map("seen_count")
+  lawfulBasis     LawfulBasis  @default(UNKNOWN) @map("lawful_basis")
+  status          EmailStatus  @default(NEW)
+  firstSeenAt     DateTime     @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  exportedAt      DateTime?    @map("exported_at") @db.Timestamptz(3)
+  exportBatchId   Int?         @map("export_batch_id")
+  exportBatch     ExportBatch? @relation(fields: [exportBatchId], references: [id], onDelete: SetNull)
+  bouncedAt       DateTime?    @map("bounced_at") @db.Timestamptz(3)
+  unsubscribedAt  DateTime?    @map("unsubscribed_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  exportItems ExportBatchItem[]
+
+  @@index([domain])
+  @@index([placeId])
+  @@index([status])
+  @@index([exportedAt])
+  // At most one primary email per place.
+  @@unique([placeId, isPrimary], where: { isPrimary: true }, map: "emails_one_primary_per_place")
+  @@map("emails")
+}
+
+/// Global block list, checked at insert time AND at export time.
+/// - Email row:  email_hash set (SHA-256 of the normalized email). For erased
+///               entries email_normalized is null, so only the hash remains.
+/// - Domain row: email_hash null, domain set -> the whole domain is blocked.
+model Suppression {
+  id              Int               @id @default(autoincrement())
+  emailHash       String?           @unique @map("email_hash") @db.Char(64)
+  emailNormalized String?           @map("email_normalized")
+  domain          String?
+  reason          SuppressionReason
+  sourceFile      String?           @map("source_file")
+  note            String?
+  addedAt         DateTime          @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  @@index([domain])
+  @@map("suppression")
+}
+
+/// gmail.com, yahoo.com, cytanet.com.cy ... excluded from domain-based de-duplication.
+model FreeEmailDomain {
+  domain  String   @id
+  addedAt DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  @@map("free_email_domains")
+}
+
+model ChainBlocklist {
+  id             Int      @id @default(autoincrement())
+  nameNormalized String   @unique @map("name_normalized")
+  displayName    String   @map("display_name")
+  domain         String?
+  addedAt        DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  @@map("chain_blocklist")
+}
+
+/// Per-domain crawl cache: a domain is crawled once even if several places share it.
+model DomainCrawl {
+  domain         String      @id
+  status         CrawlStatus @default(PENDING)
+  pagesFetched   Int         @default(0) @map("pages_fetched")
+  emailsFound    Int         @default(0) @map("emails_found")
+  robotsBlocked  Boolean     @default(false) @map("robots_blocked")
+  usedPlaywright Boolean     @default(false) @map("used_playwright")
+  lastError      String?     @map("last_error")
+  crawledAt      DateTime?   @map("crawled_at") @db.Timestamptz(3)
+  nextRetryAt    DateTime?   @map("next_retry_at") @db.Timestamptz(3)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextRetryAt])
+  @@map("domain_crawls")
+}
+
+// =============================================================================
+// Job engine
+// =============================================================================
+
+model Job {
+  id               Int          @id @default(autoincrement())
+  name             String?
+  leadType         LeadType     @default(VENDOR) @map("lead_type")
+  status           JobStatus    @default(QUEUED)
+  /// Ordered list, e.g. [GOOGLE_PLACES, OVERTURE, FOURSQUARE].
+  sourcePlan       SourceName[] @map("source_plan")
+  /// Crawl on/off, max pages, keyword languages, force re-run, ...
+  options          Json         @default("{}")
+  /// Snapshot of the cost preview shown before start.
+  estimate         Json?
+  /// Extra EUR budget approved in the quota modal (never open-ended).
+  extraBudgetEur   Decimal?     @map("extra_budget_eur") @db.Decimal(10, 2)
+  paidRequestsUsed Int          @default(0) @map("paid_requests_used")
+  lastError        String?      @map("last_error")
+  createdById      Int?         @map("created_by_id")
+  createdBy        AdminUser?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startedAt        DateTime?    @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?    @map("finished_at") @db.Timestamptz(3)
+
+  locations     JobLocation[]
+  subcategories JobSubcategory[]
+  tasks         JobTask[]
+  events        JobEvent[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("jobs")
+}
+
+/// Snapshot of resolved leaf city ids at job creation.
+model JobLocation {
+  jobId      Int      @map("job_id")
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  locationId Int      @map("location_id")
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@id([jobId, locationId])
+  @@index([locationId])
+  @@map("job_locations")
+}
+
+model JobSubcategory {
+  jobId         Int         @map("job_id")
+  job           Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  subcategoryId Int         @map("subcategory_id")
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Restrict)
+
+  @@id([jobId, subcategoryId])
+  @@index([subcategoryId])
+  @@map("job_subcategories")
+}
+
+/// Small idempotent unit of work. task_key is unique per job, so re-enqueueing
+/// the same task after a crash or resume can never create a duplicate.
+model JobTask {
+  id            Int          @id @default(autoincrement())
+  jobId         Int          @map("job_id")
+  job           Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind          TaskKind
+  /// Deterministic key, e.g. "discovery|GOOGLE_PLACES|tile:12/0-1|sub:34|kw:yoga studio|en|p1".
+  taskKey       String       @map("task_key")
+  source        SourceName?
+  locationId    Int?         @map("location_id")
+  location      Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  subcategoryId Int?         @map("subcategory_id")
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  keyword       String?
+  language      String?      @db.VarChar(8)
+  page          Int?
+  /// Tile bounding box for discovery tasks: { south, west, north, east }.
+  tile          Json?
+  /// Adaptive split depth (0 = whole city or first grid, max 2).
+  depth         Int          @default(0)
+  parentTaskId  Int?         @map("parent_task_id")
+  parentTask    JobTask?     @relation("TaskTree", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks    JobTask[]    @relation("TaskTree")
+  /// Crawl / clean tasks.
+  domain        String?
+  placeId       Int?         @map("place_id")
+  place         Place?       @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  status        TaskStatus   @default(PENDING)
+  attempts      Int          @default(0)
+  resultsCount  Int?         @map("results_count")
+  lastError     String?      @map("last_error")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startedAt     DateTime?    @map("started_at") @db.Timestamptz(3)
+  finishedAt    DateTime?    @map("finished_at") @db.Timestamptz(3)
+
+  @@unique([jobId, taskKey])
+  @@index([jobId, status])
+  @@index([jobId, kind, status])
+  @@map("job_tasks")
+}
+
+/// Live event log shown in the UI (progress, warnings, quota events, errors).
+model JobEvent {
+  id        Int        @id @default(autoincrement())
+  jobId     Int        @map("job_id")
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  level     EventLevel @default(INFO)
+  /// Machine-readable type, e.g. "quota_warning", "task_failed", "job_paused".
+  type      String
+  message   String
+  data      Json?
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([jobId, createdAt])
+  @@map("job_events")
+}
+
+/// Query cooldown: the same (source, tile, keyword, language) is not re-run within N days.
+model QueryLog {
+  id         Int        @id @default(autoincrement())
+  source     SourceName
+  locationId Int?       @map("location_id")
+  location   Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  tileKey    String     @map("tile_key")
+  keyword    String
+  language   String     @db.VarChar(8)
+  lastRunAt  DateTime   @map("last_run_at") @db.Timestamptz(3)
+  results    Int        @default(0)
+  pages      Int        @default(0)
+
+  @@unique([source, tileKey, keyword, language])
+  @@map("query_log")
+}
+
+// =============================================================================
+// Export batches (one-click CSV, re-download, undo)
+// =============================================================================
+
+model ExportBatch {
+  id          Int               @id @default(autoincrement())
+  profile     String
+  scope       String
+  filters     Json              @default("{}")
+  rowCount    Int               @map("row_count")
+  filename    String
+  status      ExportBatchStatus @default(ACTIVE)
+  createdById Int?              @map("created_by_id")
+  createdBy   AdminUser?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  undoneAt    DateTime?         @map("undone_at") @db.Timestamptz(3)
+
+  items  ExportBatchItem[]
+  emails Email[]
+
+  @@index([createdAt])
+  @@map("export_batches")
+}
+
+model ExportBatchItem {
+  batchId   Int         @map("batch_id")
+  batch     ExportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  emailId   Int         @map("email_id")
+  email     Email       @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  placeId   Int         @map("place_id")
+  place     Place       @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  rowNumber Int         @map("row_number")
+
+  @@id([batchId, emailId])
+  @@index([emailId])
+  @@index([placeId])
+  @@map("export_batch_items")
+}
+
+// =============================================================================
+// Quota guard
+// =============================================================================
+
+/// Billable request counter per provider, SKU and month ("YYYY-MM").
+/// QuotaGuard increments it with an atomic UPDATE ... WHERE request_count < limit.
+model ApiUsage {
+  provider     String
+  sku          String
+  period       String   @db.Char(7)
+  requestCount Int      @default(0) @map("request_count")
+  /// Requests billed beyond the free allowance (paid by a job's extra budget).
+  paidCount    Int      @default(0) @map("paid_count")
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([provider, sku, period])
+  @@map("api_usage")
+}

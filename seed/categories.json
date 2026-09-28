@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "slug": "personal-care-beauty",
+      "displayName": "Personal Care & Beauty",
+      "subcategories": [
+        { "slug": "appointments-consultations", "displayName": "Appointments & Consultations" },
+        { "slug": "treatments-services", "displayName": "Treatments & Services" },
+        { "slug": "products-supplies", "displayName": "Products & Supplies" },
+        { "slug": "memberships-packages", "displayName": "Memberships & Packages" }
+      ]
+    },
+    {
+      "slug": "health-wellness",
+      "displayName": "Health & Wellness",
+      "subcategories": [
+        { "slug": "consultations-therapy", "displayName": "Consultations & Therapy" },
+        { "slug": "treatments-sessions", "displayName": "Treatments & Sessions" },
+        { "slug": "products-devices", "displayName": "Products & Devices" },
+        { "slug": "plans-subscriptions", "displayName": "Plans & Subscriptions" }
+      ]
+    },
+    {
+      "slug": "fitness-sports",
+      "displayName": "Fitness & Sports",
+      "subcategories": [
+        { "slug": "training-coaching", "displayName": "Training & Coaching" },
+        { "slug": "classes-sessions", "displayName": "Classes & Sessions" },
+        { "slug": "equipment-products", "displayName": "Equipment & Products" },
+        { "slug": "memberships-passes", "displayName": "Memberships & Passes" }
+      ]
+    },
+    {
+      "slug": "home-lifestyle-pets",
+      "displayName": "Home & Lifestyle & Pets",
+      "subcategories": [
+        { "slug": "home-services", "displayName": "Home Services" },
+        { "slug": "lifestyle-products", "displayName": "Lifestyle Products" },
+        { "slug": "pet-services", "displayName": "Pet Services" },
+        { "slug": "pet-products-subscriptions", "displayName": "Pet Products & Subscriptions" }
+      ]
+    },
+    {
+      "slug": "professional-business-services",
+      "displayName": "Professional & Business Services",
+      "subcategories": [
+        { "slug": "consulting-advisory", "displayName": "Consulting & Advisory" },
+        { "slug": "support-operations", "displayName": "Support & Operations" },
+        { "slug": "tools-resources", "displayName": "Tools & Resources" },
+        { "slug": "packages-retainers", "displayName": "Packages & Retainers" }
+      ]
+    },
+    {
+      "slug": "education-coaching",
+      "displayName": "Education & Coaching",
+      "subcategories": [
+        { "slug": "lessons-tutoring", "displayName": "Lessons & Tutoring" },
+        { "slug": "courses-workshops", "displayName": "Courses & Workshops" },
+        { "slug": "materials-kits", "displayName": "Materials & Kits" },
+        { "slug": "memberships-programs", "displayName": "Memberships & Programs" }
+      ]
+    },
+    {
+      "slug": "events-experiences",
+      "displayName": "Events & Experiences",
+      "subcategories": [
+        { "slug": "bookings-reservations", "displayName": "Bookings & Reservations" },
+        { "slug": "planning-production", "displayName": "Planning & Production" },
+        { "slug": "photography-media", "displayName": "Photography & Media" },
+        { "slug": "passes-merchandise", "displayName": "Passes & Merchandise" }
+      ]
+    },
+    {
+      "slug": "retail-electronics",
+      "displayName": "Retail & Electronics",
+      "subcategories": [
+        { "slug": "products-goods", "displayName": "Products & Goods" },
+        { "slug": "services-repairs", "displayName": "Services & Repairs" },
+        { "slug": "accessories-parts", "displayName": "Accessories & Parts" },
+        { "slug": "subscriptions-warranties", "displayName": "Subscriptions & Warranties" }
+      ]
+    },
+    {
+      "slug": "legal-financial-insurance",
+      "displayName": "Legal, Financial & Insurance",
+      "subcategories": [
+        { "slug": "consultations-advisory", "displayName": "Consultations & Advisory" },
+        { "slug": "documents-templates", "displayName": "Documents & Templates" },
+        { "slug": "claims-support", "displayName": "Claims & Support" },
+        { "slug": "retainers-plans", "displayName": "Retainers & Plans" }
+      ]
+    },
+    {
+      "slug": "automotive-mobility",
+      "displayName": "Automotive & Mobility",
+      "subcategories": [
+        { "slug": "maintenance-repairs", "displayName": "Maintenance & Repairs" },
+        { "slug": "rentals-leasing", "displayName": "Rentals & Leasing" },
+        { "slug": "services-support", "displayName": "Services & Support" },
+        { "slug": "parts-accessories", "displayName": "Parts & Accessories" }
+      ]
+    },
+    {
+      "slug": "travel-hospitality",
+      "displayName": "Travel & Hospitality",
+      "subcategories": [
+        { "slug": "accommodation", "displayName": "Accommodation" },
+        { "slug": "transport-tours", "displayName": "Transport & Tours" },
+        { "slug": "experiences-activities", "displayName": "Experiences & Activities" },
+        { "slug": "food-catering", "displayName": "Food & Catering" }
+      ]
+    },
+    {
+      "slug": "food-beverage",
+      "displayName": "Food & Beverage",
+      "subcategories": [
+        { "slug": "dining-takeaway", "displayName": "Dining & Takeaway" },
+        { "slug": "catering-events", "displayName": "Catering & Events" },
+        { "slug": "specialty-retail", "displayName": "Specialty & Retail" },
+        { "slug": "delivery-subscriptions", "displayName": "Delivery & Subscriptions" }
+      ]
+    },
+    {
+      "slug": "real-estate-property",
+      "displayName": "Real Estate & Property",
+      "subcategories": [
+        { "slug": "sales-rentals", "displayName": "Sales & Rentals" },
+        { "slug": "management-advisory", "displayName": "Management & Advisory" },
+        { "slug": "storage-facilities", "displayName": "Storage & Facilities" },
+        { "slug": "services-maintenance", "displayName": "Services & Maintenance" }
+      ]
+    },
+    {
+      "slug": "specialised-industries",
+      "displayName": "Specialised Industries",
+      "subcategories": [
+        { "slug": "consulting-expertise", "displayName": "Consulting & Expertise" },
+        { "slug": "products-supplies", "displayName": "Products & Supplies" },
+        { "slug": "services-solutions", "displayName": "Services & Solutions" },
+        { "slug": "training-development", "displayName": "Training & Development" }
+      ]
+    },
+    {
+      "slug": "food-natural-products",
+      "displayName": "Food & Natural Products",
+      "subcategories": [
+        { "slug": "beverages", "displayName": "Beverages" },
+        { "slug": "gourmet-specialty", "displayName": "Gourmet & Specialty" },
+        { "slug": "honey-bee-products", "displayName": "Honey & Bee Products" },
+        { "slug": "organic-natural-foods", "displayName": "Organic & Natural Foods" }
+      ]
+    },
+    {
+      "slug": "fashion-accessories",
+      "displayName": "Fashion & Accessories",
+      "subcategories": [
+        { "slug": "kids-clothing", "displayName": "Kids' Clothing" },
+        { "slug": "leather-goods", "displayName": "Leather Goods" },
+        { "slug": "mens-clothing", "displayName": "Men's Clothing" },
+        { "slug": "scarves-shawls", "displayName": "Scarves & Shawls" },
+        { "slug": "womens-clothing", "displayName": "Women's Clothing" }
+      ]
+    }
+  ]
+}

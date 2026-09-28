@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Generated Prisma Client (rebuilt by `prisma generate`)
+src/generated/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs and test output
+*.log
+coverage/
+
+# Downloaded datasets (GeoNames, Overture, Foursquare)
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# Local curl test cookies
+cookies.txt

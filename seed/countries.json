@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "countries": {
+    "CY": {
+      "useAdmin2": false,
+      "localScript": "Greek",
+      "keywordLanguages": ["en", "el"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    }
+  }
+}

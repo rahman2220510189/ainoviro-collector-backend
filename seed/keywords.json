@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "subcategories": {
+    "personal-care-beauty/appointments-consultations": { "keywords": { "en": ["makeup artist", "lash studio"], "el": [] } },
+    "personal-care-beauty/treatments-services": { "keywords": { "en": ["hair salon", "barber shop", "nail salon", "beauty salon", "spa"], "el": ["κομμωτήριο", "κουρείο", "ινστιτούτο αισθητικής"] } },
+    "personal-care-beauty/products-supplies": { "keywords": { "en": ["cosmetics store", "beauty supply store"], "el": ["καλλυντικά"] } },
+    "personal-care-beauty/memberships-packages": { "keywords": { "en": [], "el": [] }, "note": "Not a business type; salons and spas above sell packages." },
+
+    "health-wellness/consultations-therapy": { "keywords": { "en": ["physiotherapist", "psychologist", "nutritionist", "chiropractor"], "el": ["φυσιοθεραπευτής", "ψυχολόγος", "διαιτολόγος"] } },
+    "health-wellness/treatments-sessions": { "keywords": { "en": ["massage therapist", "acupuncture", "wellness center"], "el": ["μασάζ"] } },
+    "health-wellness/products-devices": { "keywords": { "en": ["pharmacy", "medical supply store", "optician"], "el": ["φαρμακείο", "οπτικά"] } },
+    "health-wellness/plans-subscriptions": { "keywords": { "en": [], "el": [] }, "note": "Not a business type; covered by the therapists and clinics above." },
+
+    "fitness-sports/training-coaching": { "keywords": { "en": ["personal trainer", "martial arts school"], "el": ["προσωπικός γυμναστής"] } },
+    "fitness-sports/classes-sessions": { "keywords": { "en": ["yoga studio", "pilates studio", "dance school"], "el": ["σχολή χορού", "πιλάτες"] } },
+    "fitness-sports/equipment-products": { "keywords": { "en": ["sporting goods store", "bicycle shop"], "el": ["αθλητικά είδη"] } },
+    "fitness-sports/memberships-passes": { "keywords": { "en": ["gym", "fitness center"], "el": ["γυμναστήριο"] } },
+
+    "home-lifestyle-pets/home-services": { "keywords": { "en": ["cleaning service", "plumber", "electrician", "interior designer"], "el": ["υδραυλικός", "ηλεκτρολόγος"] } },
+    "home-lifestyle-pets/lifestyle-products": { "keywords": { "en": ["furniture store", "home goods store", "florist"], "el": ["έπιπλα", "ανθοπωλείο"] } },
+    "home-lifestyle-pets/pet-services": { "keywords": { "en": ["veterinarian", "pet grooming", "dog trainer"], "el": ["κτηνίατρος"] } },
+    "home-lifestyle-pets/pet-products-subscriptions": { "keywords": { "en": ["pet store"], "el": ["είδη κατοικιδίων"] } },
+
+    "professional-business-services/consulting-advisory": { "keywords": { "en": ["business consultant", "marketing agency"], "el": ["σύμβουλος επιχειρήσεων"] } },
+    "professional-business-services/support-operations": { "keywords": { "en": ["translation service", "printing shop", "courier service"], "el": ["μεταφραστικό γραφείο", "τυπογραφείο"] } },
+    "professional-business-services/tools-resources": { "keywords": { "en": ["coworking space", "web design agency"], "el": [] } },
+    "professional-business-services/packages-retainers": { "keywords": { "en": [], "el": [] }, "note": "Not a business type; consultants and agencies above offer retainers." },
+
+    "education-coaching/lessons-tutoring": { "keywords": { "en": ["tutoring center", "language school", "music school"], "el": ["φροντιστήριο", "κέντρο ξένων γλωσσών", "ωδείο"] } },
+    "education-coaching/courses-workshops": { "keywords": { "en": ["training center", "cooking class", "art school"], "el": [] } },
+    "education-coaching/materials-kits": { "keywords": { "en": ["bookstore", "educational supply store"], "el": ["βιβλιοπωλείο"] } },
+    "education-coaching/memberships-programs": { "keywords": { "en": ["life coach"], "el": [] } },
+
+    "events-experiences/bookings-reservations": { "keywords": { "en": ["event venue", "wedding venue"], "el": ["κέντρο δεξιώσεων"] } },
+    "events-experiences/planning-production": { "keywords": { "en": ["event planner", "wedding planner", "dj service"], "el": ["διοργάνωση εκδηλώσεων"] } },
+    "events-experiences/photography-media": { "keywords": { "en": ["photographer", "videographer"], "el": ["φωτογράφος"] } },
+    "events-experiences/passes-merchandise": { "keywords": { "en": ["party supply store"], "el": [] } },
+
+    "retail-electronics/products-goods": { "keywords": { "en": ["electronics store", "mobile phone store", "appliance store"], "el": ["ηλεκτρονικά", "κινητά τηλέφωνα"] } },
+    "retail-electronics/services-repairs": { "keywords": { "en": ["phone repair", "computer repair"], "el": ["επισκευή κινητών"] } },
+    "retail-electronics/accessories-parts": { "keywords": { "en": ["computer store"], "el": [] } },
+    "retail-electronics/subscriptions-warranties": { "keywords": { "en": [], "el": [] }, "note": "Not a business type; electronics stores above sell warranties." },
+
+    "legal-financial-insurance/consultations-advisory": { "keywords": { "en": ["lawyer", "law firm"], "el": ["δικηγόρος", "δικηγορικό γραφείο"] } },
+    "legal-financial-insurance/documents-templates": { "keywords": { "en": [], "el": [] }, "note": "Not a business type; lawyers and accountants provide documents." },
+    "legal-financial-insurance/claims-support": { "keywords": { "en": ["insurance agency"], "el": ["ασφαλιστικό γραφείο"] } },
+    "legal-financial-insurance/retainers-plans": { "keywords": { "en": ["accountant", "auditor", "financial advisor"], "el": ["λογιστικό γραφείο"] } },
+
+    "automotive-mobility/maintenance-repairs": { "keywords": { "en": ["car repair", "tire shop", "car wash"], "el": ["συνεργείο αυτοκινήτων", "ελαστικά"] } },
+    "automotive-mobility/rentals-leasing": { "keywords": { "en": ["car rental"], "el": ["ενοικιάσεις αυτοκινήτων"] } },
+    "automotive-mobility/services-support": { "keywords": { "en": ["driving school", "towing service"], "el": ["σχολή οδηγών"] } },
+    "automotive-mobility/parts-accessories": { "keywords": { "en": ["auto parts store", "motorcycle dealer"], "el": ["ανταλλακτικά αυτοκινήτων"] } },
+
+    "travel-hospitality/accommodation": { "keywords": { "en": ["hotel", "guest house", "holiday apartment"], "el": ["ξενοδοχείο"] } },
+    "travel-hospitality/transport-tours": { "keywords": { "en": ["travel agency", "tour operator", "boat tour"], "el": ["ταξιδιωτικό γραφείο"] } },
+    "travel-hospitality/experiences-activities": { "keywords": { "en": ["diving center", "water sports"], "el": [] } },
+    "travel-hospitality/food-catering": { "keywords": { "en": [], "el": [] }, "note": "Covered by Food & Beverage keywords, to avoid searching restaurants twice." },
+
+    "food-beverage/dining-takeaway": { "keywords": { "en": ["restaurant", "cafe", "takeaway"], "el": ["εστιατόριο", "ταβέρνα", "καφετέρια"] } },
+    "food-beverage/catering-events": { "keywords": { "en": ["catering service"], "el": ["κέτερινγκ"] } },
+    "food-beverage/specialty-retail": { "keywords": { "en": ["bakery", "pastry shop", "butcher shop"], "el": ["φούρνος", "ζαχαροπλαστείο"] } },
+    "food-beverage/delivery-subscriptions": { "keywords": { "en": ["meal delivery"], "el": [] } },
+
+    "real-estate-property/sales-rentals": { "keywords": { "en": ["real estate agency"], "el": ["κτηματομεσιτικό γραφείο"] } },
+    "real-estate-property/management-advisory": { "keywords": { "en": ["property management", "property valuer"], "el": [] } },
+    "real-estate-property/storage-facilities": { "keywords": { "en": ["self storage"], "el": [] } },
+    "real-estate-property/services-maintenance": { "keywords": { "en": ["pool cleaning service", "landscaping"], "el": [] } },
+
+    "specialised-industries/consulting-expertise": { "keywords": { "en": ["engineering consultant", "architect"], "el": ["αρχιτέκτονας"] } },
+    "specialised-industries/products-supplies": { "keywords": { "en": ["industrial equipment supplier", "wholesaler"], "el": ["χονδρεμπόριο"] } },
+    "specialised-industries/services-solutions": { "keywords": { "en": ["solar energy company", "security system installer"], "el": ["φωτοβολταϊκά"] } },
+    "specialised-industries/training-development": { "keywords": { "en": [], "el": [] }, "note": "Too broad to search; covered by training centers in Education & Coaching." },
+
+    "food-natural-products/beverages": { "keywords": { "en": ["winery", "liquor store", "coffee roaster"], "el": ["οινοποιείο", "κάβα"] } },
+    "food-natural-products/gourmet-specialty": { "keywords": { "en": ["delicatessen", "cheese shop"], "el": ["ντελικατέσεν"] } },
+    "food-natural-products/honey-bee-products": { "keywords": { "en": ["honey producer", "beekeeper"], "el": ["μέλι"] } },
+    "food-natural-products/organic-natural-foods": { "keywords": { "en": ["organic food store", "health food store"], "el": ["βιολογικά προϊόντα"] } },
+
+    "fashion-accessories/kids-clothing": { "keywords": { "en": ["children's clothing store"], "el": ["παιδικά ρούχα"] } },
+    "fashion-accessories/leather-goods": { "keywords": { "en": ["leather goods store", "handbag store"], "el": ["δερμάτινα είδη"] }, "note": "Belts and wallets are sold by these shops; 'belt shop' is not a Maps business type." },
+    "fashion-accessories/mens-clothing": { "keywords": { "en": ["men's clothing store"], "el": ["ανδρικά ρούχα"] } },
+    "fashion-accessories/scarves-shawls": { "keywords": { "en": ["accessories store"], "el": ["αξεσουάρ"] }, "note": "Scarf-only shops are rare; accessories stores carry scarves and shawls." },
+    "fashion-accessories/womens-clothing": { "keywords": { "en": ["women's clothing store", "boutique"], "el": ["γυναικεία ρούχα"] } }
+  }
+}
