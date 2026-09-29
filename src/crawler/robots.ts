@@ -10,12 +10,15 @@ export interface RobotsRules {
   isAllowed(url: string): boolean;
   /** Crawl-delay for our bot in ms, or null when none is given. */
   crawlDelayMs: number | null;
+  /** Sitemap URLs announced in robots.txt. */
+  sitemaps: string[];
 }
 
 const ALLOW_ALL = (status: RobotsStatus): RobotsRules => ({
   status,
   isAllowed: () => true,
   crawlDelayMs: null,
+  sitemaps: [],
 });
 
 const DENY_ALL = (reason: string): RobotsRules => ({
@@ -23,6 +26,7 @@ const DENY_ALL = (reason: string): RobotsRules => ({
   reason,
   isAllowed: () => false,
   crawlDelayMs: null,
+  sitemaps: [],
 });
 
 /** Parses robots.txt text for one origin (pure; used by loadRobots and tests). */
@@ -34,6 +38,7 @@ export function parseRobots(origin: string, text: string, token: string): Robots
     // undefined = URL on another host; we only ask about our own host, so treat as allowed.
     isAllowed: (url) => robots.isAllowed(url, token) !== false,
     crawlDelayMs: typeof delay === 'number' && delay > 0 ? delay * 1000 : null,
+    sitemaps: robots.getSitemaps(),
   };
 }
 

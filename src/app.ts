@@ -19,6 +19,8 @@ import { locationRoutes } from './routes/locations';
 import type { LocationStore } from './services/locations';
 import type { JobService } from './jobs/job-service';
 import { jobRoutes } from './routes/jobs';
+import type { ExportService } from './export/export-service';
+import { exportRoutes } from './routes/exports';
 /**
  * External dependencies the app needs. Passed in (instead of created here)
  * so tests can supply fakes and never touch a real database.
@@ -29,6 +31,7 @@ export interface AppDeps {
   categoryStore: CategoryStore;
     locationStore: LocationStore;
       jobService: JobService;
+      exportService: ExportService;
 }
 
 /**
@@ -93,6 +96,7 @@ export async function buildApp(env: Env, deps: AppDeps): Promise<FastifyInstance
           prefix: '/locations',
         });
                 await protectedApi.register(jobRoutes(deps.jobService), { prefix: '/jobs' });
+                        await protectedApi.register(exportRoutes(deps.exportService), { prefix: '/exports' });
       });
     },
     { prefix: '/api/v1' },

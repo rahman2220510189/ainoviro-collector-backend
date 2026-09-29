@@ -51,6 +51,62 @@ export function sameSite(hostA: string, hostB: string): boolean {
   return strip(hostA) === strip(hostB);
 }
 
+/** Which kind of page a link points to, judged from its text and path; null = not useful. */
+export function classifyLink(url: URL, text: string): ContactLink['kind'] | null {
+  const haystack = `${fold(text)} ${fold(safeDecode(url.pathname))}`;
+  return PATTERNS.find(([, pattern]) => pattern.test(haystack))?.[0] ?? null;
+}
+
+/** Sorts links: contact pages first, then about, legal, privacy; stable within a kind. */
+export function sortLinks(links: ContactLink[]): ContactLink[] {
+  return links
+    .map((link, order) => ({ link, order }))
+    .sort((a, b) => PRIORITY[a.link.kind] - PRIORITY[b.link.kind] || a.order - b.order)
+    .map(({ link }) => link);
+}
+
+/** <loc> entries of a sitemap (or sitemap index) XML document. */
+export function sitemapLocations(xml: string): string[] {
+  return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) =>
+    (m[1] ?? '').replace(/&amp;/g, '&'),
+  );
+}
+
+/**
+ * Useful same-site pages listed in a sitemap (used when the homepage menu is
+ * built by JavaScript and shows no links).
+ */
+export function contactLinksFromSitemap(xml: string, siteUrl: string): ContactLink[] {
+  const base = new URL(siteUrl);
+  const links: ContactLink[] = [];
+  for (const loc of sitemapLocations(xml)) {
+    let url: URL;
+    try {
+      url = new URL(loc);
+    } catch {
+      continue;
+    }
+    if (!sameSite(url.hostname, base.hostname) || FILE_EXTENSION.test(url.pathname)) continue;
+    const kind = classifyLink(url, '');
+    if (kind) links.push({ url: url.toString(), kind });
+  }
+  return sortLinks(links);
+}
+
+/** Common contact page addresses, tried only when nothing else points to a contact page. */
+export const GUESSED_CONTACT_PATHS = ['contact', 'contact-us', 'epikoinonia'];
+
+/**
+ * Base for guessed paths. Sites hosted in a folder ("user.wixsite.com/mysite")
+ * keep their pages under that folder.
+ */
+export function siteBase(homeUrl: string): string {
+  const url = new URL(homeUrl);
+  const firstFolder = url.pathname.split('/').filter((p) => p !== '')[0];
+  if (url.hostname.endsWith('.wixsite.com') && firstFolder) return `${url.origin}/${firstFolder}/`;
+  return `${url.origin}/`;
+}
+
 /**
  * Finds same-site links to contact/about/legal/privacy pages, best first,
  * without duplicates. External sites, files, mailto:, tel: and the page itself
@@ -78,9 +134,8 @@ export function findContactLinks(html: string, pageUrl: string): ContactLink[] {
     const key = target.toString();
     if (key === base.toString() || found.has(key)) return;
 
-    const haystack = `${fold($(element).text())} ${fold(safeDecode(target.pathname))}`;
-    const match = PATTERNS.find(([, pattern]) => pattern.test(haystack));
-    if (match) found.set(key, { kind: match[0], order: order++ });
+    const kind = classifyLink(target, $(element).text());
+    if (kind) found.set(key, { kind, order: order++ });
   });
 
   return [...found.entries()]

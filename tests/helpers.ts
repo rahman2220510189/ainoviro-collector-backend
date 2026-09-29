@@ -4,6 +4,7 @@ import type { AdminRecord, AuthStore } from '../src/auth/store';
 import type { CategoryNode, CategoryStore } from '../src/services/categories';
 import type { LocationNode, LocationStore } from '../src/services/locations';
 import type { JobDetail, JobPreview, JobService, JobSummary } from '../src/jobs/job-service';
+import type { ExportService } from '../src/export/export-service';
 /** Config for tests: no real database is contacted. */
 export const testEnv: Env = {
   NODE_ENV: 'test',
@@ -153,6 +154,43 @@ export function createFakeJobService(): FakeJobService {
   };
   return service;
 }
+export interface FakeExportService extends ExportService {
+  calls: { method: string; args: unknown[] }[];
+}
+
+/** In-memory ExportService for API tests: returns a tiny CSV with a Greek name. */
+export function createFakeExportService(): FakeExportService {
+  const file = {
+    filename: 'ainoviro_leads_2026-09-30_CY_1.csv',
+    csv: '\uFEFFbusiness_name,email\r\nΚομμωτήριο Ελένη,info@eleni.cy\r\n',
+    rowCount: 1,
+    batchId: 5,
+  };
+  const service: FakeExportService = {
+    calls: [],
+    async preview(filters) {
+      service.calls.push({ method: 'preview', args: [filters] });
+      return { newRows: 44, needsReview: 1 };
+    },
+    async exportCsv(request, adminId) {
+      service.calls.push({ method: 'exportCsv', args: [request, adminId] });
+      return file;
+    },
+    async listBatches(limit) {
+      service.calls.push({ method: 'listBatches', args: [limit] });
+      return [];
+    },
+    async download(batchId) {
+      service.calls.push({ method: 'download', args: [batchId] });
+      return batchId === 5 ? file : null;
+    },
+    async undo(batchId, adminId) {
+      service.calls.push({ method: 'undo', args: [batchId, adminId] });
+      return { batchId, returned: 1, kept: 0 };
+    },
+  };
+  return service;
+}
 /** Full AppDeps with harmless fakes; override only what a test needs. */
 export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
   return {
@@ -161,6 +199,7 @@ export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     categoryStore: createFakeCategoryStore(),
     locationStore: createFakeLocationStore(),
     jobService: createFakeJobService(),
+        exportService: createFakeExportService(),
     ...overrides,
   };
 }

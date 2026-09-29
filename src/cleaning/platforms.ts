@@ -27,7 +27,8 @@ const PLATFORM_HOSTS: Record<PlatformKind, string[]> = {
     'simplybook.it', 'calendly.com', 'vagaro.com', 'mindbodyonline.com', 'mindbody.io',
     'hey-beauty.app', 'dikidi.net', 'dikidi.ru', 'yclients.com', 'planity.com', 'timify.com',
     'booking.com', 'opentable.com', 'quandoo.com', 'resdiary.com', 'squareup.com', 'glossgenius.com',
-    'appointy.com', 'acuityscheduling.com', 'zenoti.com', 'phorest.com', 'shedul.com',
+    'appointy.com', 'acuityscheduling.com', 'as.me', 'zenoti.com', 'phorest.com', 'shedul.com',
+    'easyweek.io', 'heygoldie.com', 'appointfix.com', 'mst.link', 'masters-app.ru',
   ],
   MARKETPLACE: [
     'wolt.com', 'foody.com.cy', 'efood.gr', 'ubereats.com', 'deliveroo.com', 'glovoapp.com',

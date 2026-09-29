@@ -37,8 +37,10 @@ export function emailDomain(normalizedEmail: string): string {
 }
 
 // Loose pattern to FIND address-like substrings inside any text; each match is then
-// checked by normalizeEmail. ":" is not allowed, so "mailto:" is never part of a match.
-const CANDIDATE_PATTERN = /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z0-9-]{2,}/gi;
+// checked by normalizeEmail. ":" is not allowed, so "mailto:" is never part of a match,
+// and "/" is not allowed, so a URL path ("//site.cy/img/logo@2x.png") is never glued
+// onto an address.
+const CANDIDATE_PATTERN = /[a-z0-9.!#$%&'*+=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z0-9-]{2,}/gi;
 
 /**
  * Finds every usable email inside a piece of text, normalized and de-duplicated,

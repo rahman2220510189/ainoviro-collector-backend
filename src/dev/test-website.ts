@@ -4,7 +4,8 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 /** Where `npm run dev:test-site` serves the demo site. */
 export const DEMO_SITE_PORT = 5056;
 export const DEMO_SITE_ORIGIN = `http://127.0.0.1:${DEMO_SITE_PORT}`;
-
+/** The business domain the demo site pretends to have (used in its email addresses). */
+export const DEMO_SITE_DOMAIN = 'anna-beauty.test';
 /**
  * A small fake business website for crawler tests and local demos, so no real
  * website is ever contacted during development. It counts every request per
@@ -21,6 +22,10 @@ export interface TestWebsiteOptions {
   robotsTxt?: string | null;
   /** HTTP status for robots.txt (e.g. 503 to simulate a broken server). */
   robotsStatus?: number;
+    /** "javascript" = the homepage menu is built by a script, so it has no links to follow. */
+  menu?: 'links' | 'javascript';
+  /** Serve /sitemap.xml listing the pages (including a contact page at /get-in-touch). */
+  sitemap?: boolean;
 }
 
 export const DEFAULT_ROBOTS = [
@@ -52,7 +57,40 @@ const HOME = page(
    </nav></header>
    <main><h1>Anna Beauty Salon</h1><p>Hair, nails and make-up in Limassol since 2010.</p></main>`,
 );
+/** Cloudflare-style "email protection" encoding (XOR with a one-byte key, hex). */
+export function encodeCloudflareEmail(email: string, key = 0x5a): string {
+  const hex = (n: number): string => n.toString(16).padStart(2, '0');
+  return hex(key) + [...Buffer.from(email, 'utf8')].map((b) => hex(b ^ key)).join('');
+}
 
+/**
+ * Contact page with every way an address can appear, plus typical junk that
+ * must NOT be collected (image name, template placeholder, monitoring key).
+ */
+const CONTACT = page(
+  'Contact',
+  `<h1>Contact us</h1>
+   <p>Write to <a href="mailto:Info@Anna-Beauty.test?subject=Hello">Info@Anna-Beauty.test</a></p>
+   <p>Owner: maria [at] anna-beauty [dot] test</p>
+   <p>Bookings: <a href="/cdn-cgi/l/email-protection#${encodeCloudflareEmail('bookings@anna-beauty.test')}">[email&#160;protected]</a></p>
+   <p>Our accountant: anna.accounts&#64;gmail.com</p>
+   <figure><img src="/img/logo@2x.png" alt=""><figcaption>logo@2x.png</figcaption></figure>
+   <p class="hint">Example: name@example.com</p>
+   <div hidden>0123456789abcdef0123@sentry-next.wixpress.com</div>
+      <span data-email="reception&#64;anna-beauty.test">Reception</span>
+   <script>window.siteData = {"contactEmail":"studio\\u0040anna-beauty.test","builtBy":"developer@webagency.cy"};</script>
+   <script type="application/ld+json">
+     {"@context":"https://schema.org","@type":"BeautySalon","name":"Anna Beauty",
+      "contactPoint":{"@type":"ContactPoint","email":"mailto:hello@anna-beauty.test"}}
+   </script>`,
+);
+/** Homepage whose menu is created by JavaScript: no <a> links in the HTML. */
+const HOME_JS_MENU = page(
+  'Anna Beauty Salon Limassol',
+  `<div id="menu"></div>
+   <script>document.getElementById('menu').innerHTML = '<a href="/contact">Contact</a>';</script>
+   <main><h1>Anna Beauty Salon</h1><p>Hair, nails and make-up in Limassol since 2010.</p></main>`,
+);
 export function createTestWebsite(options: TestWebsiteOptions = {}): TestWebsite {
   const app = Fastify({ logger: false });
   const hits = new Map<string, number>();
@@ -72,17 +110,21 @@ export function createTestWebsite(options: TestWebsiteOptions = {}): TestWebsite
   const html = (body: string) => async (_request: unknown, reply: FastifyReply) =>
     reply.type('text/html; charset=utf-8').send(body);
 
-  app.get('/', html(HOME));
+  app.get('/', html(options.menu === 'javascript' ? HOME_JS_MENU : HOME));
+  app.get('/get-in-touch', html(CONTACT));
+  app.get('/sitemap.xml', async (request, reply) => {
+    if (!options.sitemap) return reply.code(404).send('not found');
+    const urls = ['/', '/services', '/get-in-touch', '/terms'];
+    return reply
+      .type('application/xml')
+      .send(
+        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` +
+          urls.map((u) => `<url><loc>http://${request.headers.host}${u}</loc></url>`).join('') +
+          '</urlset>',
+      );
+  });
   app.get('/services', html(page('Services', '<p>Haircut, colour, nails.</p>')));
-  app.get(
-    '/contact',
-    html(
-      page(
-        'Contact',
-        '<p>Write to <a href="mailto:info@anna-beauty.test">info@anna-beauty.test</a></p>',
-      ),
-    ),
-  );
+  app.get('/contact', html(CONTACT));
   app.get('/terms', html(page('Terms', '<p>Terms of service.</p>')));
   app.get('/privacy-policy', html(page('Privacy', '<p>Privacy policy.</p>')));
   app.get('/private/team', html(page('Team', '<p>This page is forbidden by robots.txt.</p>')));

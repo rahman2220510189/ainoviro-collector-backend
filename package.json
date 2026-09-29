@@ -39,7 +39,15 @@
     "dev:show-places": "tsx scripts/show-places.ts",
     "places:normalize": "tsx src/cli/normalize-places.ts",
         "crawl:site": "tsx src/cli/crawl-site.ts",
-    "dev:test-site": "tsx src/cli/test-website.ts"
+    "dev:test-site": "tsx src/cli/test-website.ts",
+        "crawl:run": "tsx src/cli/crawl-run.ts",
+    "crawl:verify": "tsx scripts/verify-email-save.ts",
+        "crawl:report": "tsx src/cli/crawl-report.ts",
+            "places:process": "tsx src/cli/process-places.ts",
+    "places:verify": "tsx scripts/verify-leads.ts",
+    "chains": "tsx src/cli/chains.ts",
+        "export": "tsx src/cli/export.ts",
+    "export:verify": "tsx scripts/verify-export.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

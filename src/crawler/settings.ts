@@ -12,7 +12,7 @@ export const crawlerSettingsSchema = z.object({
   /** Whole-request time limit. */
   timeoutMs: z.number().int().min(1000).max(60_000).default(10_000),
   /** Largest page accepted, after decompression (protects against huge or malicious pages). */
-  maxBytes: z.number().int().min(10_000).max(10_000_000).default(2_000_000),
+  maxBytes: z.number().int().min(10_000).max(10_000_000).default(5_000_000),
   maxRedirects: z.number().int().min(0).max(5).default(3),
   /** Sent with every request so site owners can see who is visiting. */
   userAgent: z

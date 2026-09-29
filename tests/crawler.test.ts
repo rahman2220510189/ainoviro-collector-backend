@@ -128,7 +128,7 @@ describe('fetchPage', () => {
         () => 'fetched',
         (err: FetchError) => err.code,
       );
-    expect(await codeOf('/huge')).toBe('TOO_LARGE');
+    expect(await codeOf('/huge', { maxBytes: 1_000_000 })).toBe('TOO_LARGE');
     expect(await codeOf('/slow', { timeoutMs: 300 })).toBe('TIMEOUT');
     expect(await codeOf('/image.png')).toBe('WRONG_CONTENT_TYPE');
   });

@@ -1,6 +1,17 @@
 import { platformKindOfHost } from '../cleaning/platforms';
 import { fetchPage, FetchError, type FetchedPage, type FetchOptions } from './fetch-page';
-import { findContactLinks, looksJavaScriptRendered, sameSite, type PageKind } from './links';
+import {
+  contactLinksFromSitemap,
+  findContactLinks,
+  GUESSED_CONTACT_PATHS,
+  looksJavaScriptRendered,
+  sameSite,
+  siteBase,
+  sitemapLocations,
+  sortLinks,
+  type ContactLink,
+  type PageKind,
+} from './links';
 import { loadRobots, type RobotsRules } from './robots';
 import type { CrawlerSettings } from './settings';
 
@@ -51,7 +62,15 @@ export interface SiteCrawlResult {
   error: CrawlError | null;
   /** Problems on secondary pages (the crawl still counts as DONE). */
   pageErrors: { url: string; message: string }[];
+  /**
+   * How contact pages were found: homepage links, the sitemap, common addresses
+   * tried directly ("guessed"), or not at all.
+   */
+  contactSource?: 'LINKS' | 'SITEMAP' | 'GUESSED' | 'NONE';
 }
+
+/** A page to visit; guessed addresses are tried quietly (a 404 is expected). */
+type PlannedLink = ContactLink & { guessed?: boolean };
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -65,6 +84,7 @@ function failed(error: CrawlError, extra: Partial<SiteCrawlResult> = {}): SiteCr
     looksJavaScriptRendered: false,
     error,
     pageErrors: [],
+    contactSource: 'NONE',
     ...extra,
   };
 }
@@ -183,6 +203,19 @@ export async function crawlSite(website: string, options: CrawlOptions): Promise
       requests,
     });
   }
+  // The address from the data source points to a page that no longer exists
+  // ("shop.cy/en/old-offer"): the homepage of the same site is still worth a look.
+  if ((home.status === 404 || home.status === 410) && used.pathname !== '/') {
+    const root = `${used.origin}/`;
+    if (robots.isAllowed(root)) {
+      try {
+        const rootPage = await politely(() => fetchPage(root, fetchOptions));
+        if (rootPage.status >= 200 && rootPage.status < 300) home = rootPage;
+      } catch {
+        // Keep reporting the original 404 below.
+      }
+    }
+  }
   if (home.status < 200 || home.status >= 300) {
     return failed(httpError(home), { requests, robotsStatus: robots.status });
   }
@@ -233,10 +266,35 @@ export async function crawlSite(website: string, options: CrawlOptions): Promise
   const pages: CrawledPage[] = [{ url: home.url, kind: 'HOME', html: home.body }];
   const pageErrors: SiteCrawlResult['pageErrors'] = [];
   const rules = robots;
-  const links = findContactLinks(home.body, home.url).filter((link) => rules.isAllowed(link.url));
+  const allowed = (link: ContactLink): boolean => rules.isAllowed(link.url);
+  let planned: PlannedLink[] = findContactLinks(home.body, home.url).filter(allowed);
+  let contactSource: SiteCrawlResult['contactSource'] = planned.some((l) => l.kind === 'CONTACT')
+    ? 'LINKS'
+    : 'NONE';
 
-  for (const link of links) {
+  // No contact link on the homepage (menus built by JavaScript, image-only menus):
+  // look in the sitemap, then try the most common contact addresses directly.
+  if (contactSource === 'NONE') {
+    const known = new Set(planned.map((l) => l.url));
+    const fromSitemap = (await readSitemap()).filter((l) => allowed(l) && !known.has(l.url));
+    if (fromSitemap.some((l) => l.kind === 'CONTACT')) contactSource = 'SITEMAP';
+    let extra: PlannedLink[] = fromSitemap;
+    if (contactSource === 'NONE') {
+      const guesses = GUESSED_CONTACT_PATHS.map((path) => ({
+        url: new URL(path, siteBase(home.url)).toString(),
+        kind: 'CONTACT' as const,
+        guessed: true,
+      })).filter((l) => allowed(l) && !known.has(l.url));
+      extra = [...guesses, ...fromSitemap];
+    }
+    planned = [...sortLinks(extra), ...planned];
+  }
+
+  let guessFound = false;
+  for (const link of planned) {
     if (pages.length >= settings.maxPagesPerDomain) break;
+    // One working guessed contact page is enough.
+    if (link.guessed && guessFound) continue;
     try {
       const page = await politely(() => fetchPage(link.url, fetchOptions));
       if (
@@ -245,11 +303,15 @@ export async function crawlSite(website: string, options: CrawlOptions): Promise
         sameSite(new URL(page.url).hostname, finalUrl.hostname)
       ) {
         pages.push({ url: page.url, kind: link.kind, html: page.body });
-      } else {
+        if (link.guessed) {
+          guessFound = true;
+          contactSource = 'GUESSED';
+        }
+      } else if (!link.guessed) {
         pageErrors.push({ url: link.url, message: `HTTP ${page.status}` });
       }
     } catch (err) {
-      pageErrors.push({ url: link.url, message: toCrawlError(err).message });
+      if (!link.guessed) pageErrors.push({ url: link.url, message: toCrawlError(err).message });
     }
   }
 
@@ -262,5 +324,38 @@ export async function crawlSite(website: string, options: CrawlOptions): Promise
     looksJavaScriptRendered: looksJavaScriptRendered(home.body),
     error: null,
     pageErrors,
+    contactSource,
   };
+
+  /** Contact-like pages listed in the site's sitemap (at most 2 requests). */
+  async function readSitemap(): Promise<ContactLink[]> {
+    const origin = new URL(home?.url ?? website).origin;
+    const announced = rules.sitemaps.find((u) => {
+      try {
+        return sameSite(new URL(u).hostname, finalUrl.hostname);
+      } catch {
+        return false;
+      }
+    });
+    const first = announced ?? `${origin}/sitemap.xml`;
+    const load = async (url: string): Promise<string | null> => {
+      try {
+        // Only this site's own sitemap, and only where robots.txt allows it.
+        if (!sameSite(new URL(url).hostname, finalUrl.hostname) || !rules.isAllowed(url))
+          return null;
+        const page = await politely(() => fetchPage(url, { ...fetchOptions, expect: 'text' }));
+        return page.status >= 200 && page.status < 300 ? page.body : null;
+      } catch {
+        return null;
+      }
+    };
+    let xml = await load(first);
+    if (xml && /<sitemapindex/i.test(xml)) {
+      // Sitemap index: open the one child sitemap most likely to list ordinary pages.
+      const children = sitemapLocations(xml);
+      const child = children.find((u) => /page/i.test(u)) ?? children[0];
+      xml = child ? await load(child) : null;
+    }
+    return xml ? contactLinksFromSitemap(xml, finalUrl.toString()) : [];
+  }
 }

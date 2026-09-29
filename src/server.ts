@@ -8,6 +8,8 @@ import { createPrismaJobService } from './jobs/job-service';
 import { runModeFor } from './jobs/keys';
 import { QuotaGuard } from './quota/quota-guard';
 import { loadQuotaSettings } from './quota/settings';
+import { Pool } from 'pg';
+import { createExportService } from './export/export-service';
 /** Startup problem with a message meant for humans (no stack trace needed). */
 class StartupError extends Error {
   constructor(message: string) {
@@ -40,13 +42,15 @@ async function main(): Promise<void> {
       `Cannot connect to the database. Check DATABASE_URL in backend/.env.\n  Reason: ${reason}`,
     );
   }
-
+  // Raw SQL pool for bulk work (exports).
+  const pool = new Pool({ connectionString: env.DATABASE_URL, max: 5 });
   const quota = new QuotaGuard(prisma, await loadQuotaSettings(prisma));
   const app = await buildApp(env, {
     checkDatabase: () => pingDatabase(prisma),
     authStore: createPrismaAuthStore(prisma),
     categoryStore: createPrismaCategoryStore(prisma),
     locationStore: createPrismaLocationStore(prisma),
+        exportService: createExportService(pool),
     jobService: createPrismaJobService(prisma, { quota, mode: runModeFor(env.GOOGLE_PLACES_BASE_URL) }),
   });
   app.log.info('Database connection OK');
@@ -58,6 +62,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     app.log.info({ signal }, 'Shutting down');
     await app.close();
+        await pool.end();
     await prisma.$disconnect();
     process.exit(0);
   };

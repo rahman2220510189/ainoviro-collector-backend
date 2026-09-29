@@ -1,5 +1,5 @@
 /**
- * Crawls ONE website and prints what the crawler did. Nothing is saved.
+ * Crawls ONE website and prints what the crawler found. Nothing is saved.
  *
  *   npm run crawl:site -- --url http://127.0.0.1:5056/ --demo   (local demo site)
  *   npm run crawl:site -- --url https://example.com/              (a real website)
@@ -8,35 +8,46 @@
  * private-address guard; every other address is still checked.
  */
 import { parseArgs } from 'node:util';
+import { Pool } from 'pg';
 import { crawlSite } from '../crawler/crawl-site';
 import {
   crawlerSettingsSchema,
   loadCrawlerSettings,
   type CrawlerSettings,
 } from '../crawler/settings';
+import { analyzeWebsite } from '../cleaning/website';
 import { EnvValidationError, loadEnv } from '../config/env';
 import { createPrismaClient } from '../db/prisma';
-import { extractEmails } from '../lib/email';
-import { DEMO_SITE_ORIGIN } from '../dev/test-website';
+import { DEMO_SITE_DOMAIN, DEMO_SITE_ORIGIN } from '../dev/test-website';
+import { loadFreeDomainSet } from '../enrich/crawl-queue';
+import { evaluateSiteEmails } from '../enrich/evaluate';
+import { MxChecker } from '../enrich/mx';
+import { describeEvaluation } from '../enrich/report';
 
-async function readSettings(): Promise<CrawlerSettings> {
+async function readConfig(): Promise<{ settings: CrawlerSettings; freeDomains: Set<string> }> {
   try {
     process.loadEnvFile('.env');
   } catch {
     // No .env file: defaults are used below.
   }
   try {
-    const prisma = createPrismaClient(loadEnv());
+    const env = loadEnv();
+    const prisma = createPrismaClient(env);
+    const pool = new Pool({ connectionString: env.DATABASE_URL, max: 1 });
     try {
-      return await loadCrawlerSettings(prisma);
+      return {
+        settings: await loadCrawlerSettings(prisma),
+        freeDomains: await loadFreeDomainSet(pool),
+      };
     } finally {
       await prisma.$disconnect();
+      await pool.end();
     }
   } catch (err) {
     if (err instanceof EnvValidationError)
       console.warn('(.env incomplete: using default crawler settings)');
     else console.warn('(database not reachable: using default crawler settings)');
-    return crawlerSettingsSchema.parse({});
+    return { settings: crawlerSettingsSchema.parse({}), freeDomains: new Set() };
   }
 }
 
@@ -46,7 +57,7 @@ async function main(): Promise<void> {
   });
   if (!values.url) throw new Error('Missing --url, e.g. --url http://127.0.0.1:5056/ --demo');
 
-  const settings = await readSettings();
+  const { settings, freeDomains } = await readConfig();
   const started = Date.now();
   const result = await crawlSite(values.url, {
     settings,
@@ -64,6 +75,15 @@ async function main(): Promise<void> {
     `  Requests:    ${result.requests} in ${seconds}s (pause ${settings.delayMs} ms between requests)`,
   );
   if (result.finalOrigin) console.log(`  Final site:  ${result.finalOrigin}`);
+    if (result.outcome === 'DONE') {
+    const how = {
+      LINKS: 'link on the homepage',
+      SITEMAP: 'found in sitemap.xml',
+      GUESSED: 'common address tried directly',
+      NONE: 'not found',
+    }[result.contactSource ?? 'NONE'];
+    console.log(`  Contact page: ${how}`);
+  }
   if (result.looksJavaScriptRendered)
     console.log('  Note:        homepage looks JavaScript-rendered');
 
@@ -73,11 +93,16 @@ async function main(): Promise<void> {
       const kb = (Buffer.byteLength(page.html) / 1024).toFixed(1);
       console.log(`    ${page.kind.padEnd(8)} ${page.url}  (${kb} KB)`);
     }
-    // Quick preview only; the real extraction (obfuscation, filters, classification) is step 2.3.
-    const emails = [...new Set(result.pages.flatMap((p) => extractEmails(p.html)))];
-    console.log(
-      `  Email-like text seen (preview): ${emails.length > 0 ? emails.join(', ') : 'none'}`,
-    );
+    const evaluation = await evaluateSiteEmails(result.pages, {
+      // The demo site runs on 127.0.0.1 but pretends to be "anna-beauty.test".
+      websiteDomain: values.demo
+        ? DEMO_SITE_DOMAIN
+        : analyzeWebsite(result.finalOrigin ?? values.url).domain,
+      freeDomains,
+      mx: new MxChecker(),
+    });
+    console.log('  Emails (preview, NOT saved):');
+    for (const line of describeEvaluation(evaluation)) console.log(line);
   }
   for (const problem of result.pageErrors)
     console.log(`  Page problem: ${problem.url} -> ${problem.message}`);

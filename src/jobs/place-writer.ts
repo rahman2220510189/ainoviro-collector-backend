@@ -61,13 +61,46 @@ export async function writeGooglePlaces(
   results: GooglePlace[],
   ctx: PlaceWriteContext,
 ): Promise<PlaceWriteResult> {
-  const { prepared, skippedClosed } = prepareGooglePlaces(results, ctx);
+  const { prepared: all, skippedClosed } = prepareGooglePlaces(results, ctx);
   const result: PlaceWriteResult = { inserted: 0, updated: 0, skippedClosed };
-  if (prepared.length === 0) return result;
+  if (all.length === 0) return result;
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+
+    // Source ids first (spec §11): a Google id that was merged into another place lives
+    // on in place_sources only. Such results update that place instead of creating the
+    // duplicate again.
+    const merged = await client.query<{ gid: string; place_id: number }>(
+      `SELECT s.source_record_id AS gid, s.place_id
+       FROM place_sources s JOIN places p ON p.id = s.place_id
+       WHERE s.source = 'GOOGLE_PLACES' AND s.source_record_id = ANY($1::text[])
+         AND p.google_place_id IS DISTINCT FROM s.source_record_id`,
+      [all.map((p) => p.place.googlePlaceId)],
+    );
+    const mergedInto = new Map(merged.rows.map((r) => [r.gid, r.place_id]));
+    const prepared = all.filter((p) => !mergedInto.has(p.place.googlePlaceId));
+    if (mergedInto.size > 0) {
+      const ids = [...new Set(mergedInto.values())];
+      await client.query('UPDATE places SET last_seen_at = now() WHERE id = ANY($1::int[])', [ids]);
+      await client.query(
+        `UPDATE place_sources SET fetched_at = now()
+         WHERE source = 'GOOGLE_PLACES' AND source_record_id = ANY($1::text[])`,
+        [[...mergedInto.keys()]],
+      );
+      await client.query(
+        `INSERT INTO place_subcategories (place_id, subcategory_id, matched_keyword, source, is_primary)
+         SELECT u.place_id, $2, $3, 'GOOGLE_PLACES', false FROM unnest($1::int[]) AS u(place_id)
+         ON CONFLICT (place_id, subcategory_id) DO NOTHING`,
+        [ids, ctx.subcategoryId, ctx.keyword],
+      );
+      result.updated += mergedInto.size;
+    }
+    if (prepared.length === 0) {
+      await client.query('COMMIT');
+      return result;
+    }
 
     const saved = await client.query<{ id: number; google_place_id: string; inserted: boolean }>(
       `INSERT INTO places (

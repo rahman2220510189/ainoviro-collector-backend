@@ -219,3 +219,15 @@ describe('normalizePlaceFields', () => {
     });
   });
 });
+
+describe('booking platforms found in the first real crawl', () => {
+  it.each([
+    'permanentbeautylimassol.as.me',
+    'lash-siuzi.easyweek.io',
+    'book.heygoldie.com',
+    'appointfix.com',
+    'mst.link',
+  ])('%s is a booking platform, not an own website', (host) => {
+    expect(platformKindOfHost(host)).toBe('BOOKING');
+  });
+});
