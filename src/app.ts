@@ -21,6 +21,15 @@ import type { JobService } from './jobs/job-service';
 import { jobRoutes } from './routes/jobs';
 import type { ExportService } from './export/export-service';
 import { exportRoutes } from './routes/exports';
+import type { LeadService } from './leads/lead-service';
+import { leadRoutes } from './routes/leads';
+import type { SuppressionService } from './services/suppression-service';
+import { suppressionRoutes } from './routes/suppression';
+import type { DashboardService } from './services/dashboard-service';
+import { dashboardRoutes } from './routes/dashboard';
+import type { SettingsService } from './services/settings-service';
+import { settingsRoutes } from './routes/settings';
+
 /**
  * External dependencies the app needs. Passed in (instead of created here)
  * so tests can supply fakes and never touch a real database.
@@ -29,9 +38,13 @@ export interface AppDeps {
   checkDatabase: () => Promise<void>;
   authStore: AuthStore;
   categoryStore: CategoryStore;
-    locationStore: LocationStore;
-      jobService: JobService;
-      exportService: ExportService;
+  locationStore: LocationStore;
+  jobService: JobService;
+  exportService: ExportService;
+  leadService: LeadService;
+  suppressionService: SuppressionService;
+  dashboardService: DashboardService;
+  settingsService: SettingsService;
 }
 
 /**
@@ -55,8 +68,8 @@ export async function buildApp(env: Env, deps: AppDeps): Promise<FastifyInstance
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // X-Requested-With is the required CSRF header (see auth/csrf.ts).
     allowedHeaders: ['Content-Type', 'X-Requested-With'],
-    // Lets the frontend read the CSV filename on download.
-    exposedHeaders: ['Content-Disposition'],
+    // Lets the frontend read the CSV filename and the export counts on download.
+    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count', 'X-Export-Batch-Id'],
   });
 
   // Cookies + JWT: the login token lives in an httpOnly cookie.
@@ -95,8 +108,18 @@ export async function buildApp(env: Env, deps: AppDeps): Promise<FastifyInstance
         await protectedApi.register(locationRoutes(deps.locationStore), {
           prefix: '/locations',
         });
-                await protectedApi.register(jobRoutes(deps.jobService), { prefix: '/jobs' });
-                        await protectedApi.register(exportRoutes(deps.exportService), { prefix: '/exports' });
+        await protectedApi.register(jobRoutes(deps.jobService), { prefix: '/jobs' });
+        await protectedApi.register(exportRoutes(deps.exportService), { prefix: '/exports' });
+        await protectedApi.register(leadRoutes(deps.leadService), { prefix: '/leads' });
+        await protectedApi.register(suppressionRoutes(deps.suppressionService), {
+          prefix: '/suppression',
+        });
+        await protectedApi.register(dashboardRoutes(deps.dashboardService), {
+          prefix: '/dashboard',
+        });
+        await protectedApi.register(settingsRoutes(deps.settingsService), {
+          prefix: '/settings',
+        });
       });
     },
     { prefix: '/api/v1' },

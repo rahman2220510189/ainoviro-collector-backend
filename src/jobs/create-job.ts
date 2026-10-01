@@ -19,6 +19,11 @@ export interface JobRequest {
   name?: string;
   countryCode: string;
   districtNames: string[];
+  /**
+   * Picked from the location tree (districts and/or single cities of this country).
+   * Used instead of districtNames; empty = use districtNames (or the whole country).
+   */
+  locationIds?: number[];
   /** Empty = all categories. */
   categorySlugs: string[];
   greek: boolean;
@@ -48,6 +53,7 @@ export interface PreparedJob {
   mode: RunMode;
   countryCode: string;
   districtNames: string[];
+  locationIds: number[];
   categorySlugs: string[];
   languages: string[];
   includeRural: boolean;
@@ -86,25 +92,60 @@ export async function prepareDiscoveryJob(
   });
   if (!country) throw invalid(`Country ${countryCode} is not imported. Run import:geonames first.`);
 
-  // Scope: whole country or chosen districts.
+  // Scope: whole country, chosen districts (by name), or nodes picked in the location tree.
+  const locationIds = [...new Set(request.locationIds ?? [])];
+  if (locationIds.length > 0 && request.districtNames.length > 0) {
+    throw invalid('Give either districts or locations, not both.');
+  }
   let scopeIds = [country.id];
   let scopeLabel = `${country.name} (all districts)`;
-  if (request.districtNames.length > 0) {
+  if (locationIds.length > 0) {
+    const picked = await prisma.location.findMany({
+      where: { id: { in: locationIds }, active: true },
+      select: { id: true, name: true, type: true, countryCode: true },
+    });
+    const byId = new Map(picked.map((l) => [l.id, l]));
+    const wrong = locationIds.filter((id) => byId.get(id)?.countryCode !== countryCode);
+    if (wrong.length > 0) {
+      throw invalid(`Locations not found in ${countryCode}: ${wrong.slice(0, 5).join(', ')}`);
+    }
+    scopeIds = locationIds;
+    if (!locationIds.includes(country.id)) {
+      // Districts first, then cities, each alphabetically; long lists are shortened.
+      const names = locationIds
+        .map((id) => byId.get(id))
+        .filter((l) => l !== undefined)
+        .sort((a, b) =>
+          a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'REGION' ? -1 : 1,
+        )
+        .map((l) => l.name);
+      const shown = names.slice(0, 3).join(', ');
+      scopeLabel = `${country.name} (${names.length > 3 ? `${shown} +${names.length - 3} more` : shown})`;
+    }
+  } else if (request.districtNames.length > 0) {
     const regions = await prisma.location.findMany({
       where: { parentId: country.id, type: 'REGION', active: true },
       select: { id: true, name: true, nameLocal: true },
     });
     scopeIds = request.districtNames.map((name) => {
       const wanted = name.toLowerCase();
-      const match = regions.find((r) => r.name.toLowerCase() === wanted || r.nameLocal?.toLowerCase() === wanted);
-      if (!match) throw invalid(`Unknown district "${name}". Districts: ${regions.map((r) => r.name).join(', ')}`);
+      const match = regions.find(
+        (r) => r.name.toLowerCase() === wanted || r.nameLocal?.toLowerCase() === wanted,
+      );
+      if (!match)
+        throw invalid(
+          `Unknown district "${name}". Districts: ${regions.map((r) => r.name).join(', ')}`,
+        );
       return match.id;
     });
     scopeLabel = `${country.name} (${request.districtNames.join(', ')})`;
   }
 
   if (request.categorySlugs.length > 0) {
-    const active = await prisma.category.findMany({ where: { active: true }, select: { slug: true } });
+    const active = await prisma.category.findMany({
+      where: { active: true },
+      select: { slug: true },
+    });
     const known = new Set(active.map((c) => c.slug));
     for (const slug of request.categorySlugs) {
       if (!known.has(slug)) throw invalid(`Unknown category "${slug}".`);
@@ -129,9 +170,11 @@ export async function prepareDiscoveryJob(
   if (keywords.length === 0) throw invalid('No active keywords for this selection.');
 
   const cityIds = await createPrismaLocationStore(prisma).resolveCityIds(scopeIds);
+  if (cityIds.length === 0) throw invalid('The chosen locations contain no cities.');
   const { cities } = await loadPlanningCities(prisma, cityIds);
   const plan = planSearchAreas(cities, { minCityPopulation, includeRural });
-  if (plan.areas.length === 0) throw invalid('The plan has no search areas (try including rural areas).');
+  if (plan.areas.length === 0)
+    throw invalid('The plan has no search areas (try including rural areas).');
 
   // Cooldown: root searches of this mode that ran recently are skipped.
   const rootKey = (areaKey: string): string => queryLogTileKey(ctx.mode, areaKey, '');
@@ -188,13 +231,18 @@ export async function prepareDiscoveryJob(
     where: {
       source: 'GOOGLE_PLACES',
       keyword: { in: [...new Set(keywords.map((k) => k.keyword))] },
-      tileKey: ctx.mode === 'MOCK' ? { startsWith: MOCK_TILE_PREFIX } : { not: { startsWith: MOCK_TILE_PREFIX } },
+      tileKey:
+        ctx.mode === 'MOCK'
+          ? { startsWith: MOCK_TILE_PREFIX }
+          : { not: { startsWith: MOCK_TILE_PREFIX } },
     },
     _avg: { pages: true },
     _count: { _all: true },
   });
   const averagePages =
-    history._count._all > 0 && history._avg.pages !== null ? history._avg.pages : DEFAULT_AVERAGE_PAGES;
+    history._count._all > 0 && history._avg.pages !== null
+      ? history._avg.pages
+      : DEFAULT_AVERAGE_PAGES;
   const tasksToRun = tasks.filter((t) => t.status === 'PENDING').length;
 
   return {
@@ -203,6 +251,7 @@ export async function prepareDiscoveryJob(
     mode: ctx.mode,
     countryCode,
     districtNames: request.districtNames,
+    locationIds,
     categorySlugs: request.categorySlugs,
     languages,
     includeRural,
@@ -220,7 +269,11 @@ export async function prepareDiscoveryJob(
 }
 
 /** Saves a prepared job as QUEUED. Nothing runs until it is started. */
-export async function saveDiscoveryJob(prisma: PrismaClient, job: PreparedJob, createdById?: number): Promise<number> {
+export async function saveDiscoveryJob(
+  prisma: PrismaClient,
+  job: PreparedJob,
+  createdById?: number,
+): Promise<number> {
   if (job.cost.minimum === 0) {
     throw invalid(
       `Every search in this job ran within the last ${job.cooldownDays} days (cooldown). ` +
@@ -240,6 +293,8 @@ export async function saveDiscoveryJob(prisma: PrismaClient, job: PreparedJob, c
             mode: job.mode,
             countryCode: job.countryCode,
             districtNames: job.districtNames,
+            locationIds: job.locationIds,
+            scopeLabel: job.scopeLabel,
             categorySlugs: job.categorySlugs,
             languages: job.languages,
             includeRural: job.includeRural,
@@ -260,7 +315,9 @@ export async function saveDiscoveryJob(prisma: PrismaClient, job: PreparedJob, c
         },
         select: { id: true },
       });
-      await tx.jobLocation.createMany({ data: job.cityIds.map((id) => ({ jobId: created.id, locationId: id })) });
+      await tx.jobLocation.createMany({
+        data: job.cityIds.map((id) => ({ jobId: created.id, locationId: id })),
+      });
       await tx.jobSubcategory.createMany({
         data: job.subcategoryIds.map((id) => ({ jobId: created.id, subcategoryId: id })),
       });

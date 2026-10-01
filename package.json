@@ -47,7 +47,12 @@
     "places:verify": "tsx scripts/verify-leads.ts",
     "chains": "tsx src/cli/chains.ts",
         "export": "tsx src/cli/export.ts",
-    "export:verify": "tsx scripts/verify-export.ts"
+    "export:verify": "tsx scripts/verify-export.ts",
+        "leads:verify": "tsx scripts/verify-lead-api.ts",
+            "suppression:verify": "tsx scripts/verify-suppression-api.ts",
+                "jobs:verify": "tsx scripts/verify-jobs-api.ts",
+                    "dashboard:verify": "tsx scripts/verify-dashboard.ts",
+                        "settings:verify": "tsx scripts/verify-settings.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

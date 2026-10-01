@@ -1,4 +1,10 @@
+import { Pool } from 'pg';
 import { EnvValidationError, loadEnv } from './config/env';
+import { createExportService } from './export/export-service';
+import { createLeadService } from './leads/lead-service';
+import { createSuppressionService } from './services/suppression-service';
+import { createDashboardService } from './services/dashboard-service';
+import { createSettingsService } from './services/settings-service';
 import { createPrismaClient, pingDatabase } from './db/prisma';
 import { createPrismaAuthStore } from './auth/store';
 import { buildApp } from './app';
@@ -8,8 +14,7 @@ import { createPrismaJobService } from './jobs/job-service';
 import { runModeFor } from './jobs/keys';
 import { QuotaGuard } from './quota/quota-guard';
 import { loadQuotaSettings } from './quota/settings';
-import { Pool } from 'pg';
-import { createExportService } from './export/export-service';
+
 /** Startup problem with a message meant for humans (no stack trace needed). */
 class StartupError extends Error {
   constructor(message: string) {
@@ -42,6 +47,7 @@ async function main(): Promise<void> {
       `Cannot connect to the database. Check DATABASE_URL in backend/.env.\n  Reason: ${reason}`,
     );
   }
+
   // Raw SQL pool for bulk work (exports).
   const pool = new Pool({ connectionString: env.DATABASE_URL, max: 5 });
   const quota = new QuotaGuard(prisma, await loadQuotaSettings(prisma));
@@ -50,8 +56,17 @@ async function main(): Promise<void> {
     authStore: createPrismaAuthStore(prisma),
     categoryStore: createPrismaCategoryStore(prisma),
     locationStore: createPrismaLocationStore(prisma),
-        exportService: createExportService(pool),
-    jobService: createPrismaJobService(prisma, { quota, mode: runModeFor(env.GOOGLE_PLACES_BASE_URL) }),
+    jobService: createPrismaJobService(prisma, {
+      quota,
+      mode: runModeFor(env.GOOGLE_PLACES_BASE_URL),
+      liveRequestsEnabled: env.GOOGLE_LIVE_REQUESTS,
+    }),
+    exportService: createExportService(pool),
+    leadService: createLeadService(pool),
+    suppressionService: createSuppressionService(prisma, pool),
+    dashboardService: createDashboardService(pool),
+    // A saved quota change applies to new jobs and previews at once.
+    settingsService: createSettingsService(pool, { onQuotaChange: (s) => quota.setLimits(s) }),
   });
   app.log.info('Database connection OK');
 
@@ -62,7 +77,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     app.log.info({ signal }, 'Shutting down');
     await app.close();
-        await pool.end();
+    await pool.end();
     await prisma.$disconnect();
     process.exit(0);
   };

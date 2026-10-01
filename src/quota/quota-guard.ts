@@ -1,5 +1,11 @@
 import type { PrismaClient } from '../generated/prisma/client';
-import { billingPeriod, freeCap, pricePerRequestEur, warnPoint, type QuotaSettings } from './settings';
+import {
+  billingPeriod,
+  freeCap,
+  pricePerRequestEur,
+  warnPoint,
+  type QuotaSettings,
+} from './settings';
 
 /** Internal names for what we count. The Google SKU mapping is confirmed in step 1.4. */
 export const GOOGLE_PROVIDER = 'google_places';
@@ -15,7 +21,14 @@ export type DenyReason =
 
 export type QuotaDecision =
   | { granted: true; billing: 'FREE'; period: string; requestCount: number; warn: boolean }
-  | { granted: true; billing: 'PAID'; period: string; requestCount: number; paidCount: number; costEur: number }
+  | {
+      granted: true;
+      billing: 'PAID';
+      period: string;
+      requestCount: number;
+      paidCount: number;
+      costEur: number;
+    }
   | { granted: false; period: string; reason: DenyReason };
 
 export interface ReserveInput {
@@ -45,9 +58,19 @@ class Deny extends Error {
 export class QuotaGuard {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly settings: QuotaSettings,
+    private settings: QuotaSettings,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /** The settings this guard enforces (read at start). */
+  limits(): QuotaSettings {
+    return this.settings;
+  }
+
+  /** Replaces the settings (after a change on the Settings page); the next reserve() uses them. */
+  setLimits(settings: QuotaSettings): void {
+    this.settings = settings;
+  }
 
   currentPeriod(): string {
     return billingPeriod(this.now(), this.settings.billingTimeZone);
@@ -82,7 +105,12 @@ export class QuotaGuard {
     return this.reservePaid(provider, sku, period, jobId);
   }
 
-  private async reservePaid(provider: string, sku: string, period: string, jobId: number): Promise<QuotaDecision> {
+  private async reservePaid(
+    provider: string,
+    sku: string,
+    period: string,
+    jobId: number,
+  ): Promise<QuotaDecision> {
     const price = pricePerRequestEur(this.settings);
     const monthlyCap = this.settings.monthlyHardCapEur;
 
@@ -97,7 +125,10 @@ export class QuotaGuard {
               AND (paid_requests_used + 1) * ${price}::numeric <= extra_budget_eur
             RETURNING paid_requests_used AS paid`;
           if (!job[0]) {
-            const info = await tx.job.findUnique({ where: { id: jobId }, select: { extraBudgetEur: true } });
+            const info = await tx.job.findUnique({
+              where: { id: jobId },
+              select: { extraBudgetEur: true },
+            });
             const hasBudget = Number(info?.extraBudgetEur ?? 0) > 0;
             throw new Deny(hasBudget ? 'JOB_BUDGET_EXHAUSTED' : 'FREE_LIMIT_REACHED');
           }
@@ -137,16 +168,18 @@ export class QuotaGuard {
   }
 
   /** Current month's usage for one provider/SKU. */
-  async getUsage(provider: string, sku: string): Promise<{ period: string; requestCount: number; paidCount: number }> {
+  async getUsage(
+    provider: string,
+    sku: string,
+  ): Promise<{ period: string; requestCount: number; paidCount: number }> {
     const period = this.currentPeriod();
     const row = await this.prisma.apiUsage.findUnique({
       where: { provider_sku_period: { provider, sku, period } },
       select: { requestCount: true, paidCount: true },
     });
     return { period, requestCount: row?.requestCount ?? 0, paidCount: row?.paidCount ?? 0 };
-    
   }
-  
+
   /** Free requests still available this month for one provider/SKU. */
   async freeRemaining(provider: string, sku: string): Promise<number> {
     const usage = await this.getUsage(provider, sku);

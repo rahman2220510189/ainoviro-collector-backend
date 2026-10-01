@@ -7,7 +7,13 @@ import { PrismaClient } from '../generated/prisma/client';
  */
 export function createPrismaClient(env: Env): PrismaClient {
   const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
-  return new PrismaClient({ adapter });
+  return new PrismaClient({
+    adapter,
+    // Prisma's defaults (2 s to start a transaction, 5 s to finish it) are too short for a
+    // remote Neon database: opening a new connection, or waking a suspended database,
+    // can take several seconds.
+    transactionOptions: { maxWait: 15_000, timeout: 30_000 },
+  });
 }
 
 /** Resolves if the database answers a trivial query, rejects otherwise. */

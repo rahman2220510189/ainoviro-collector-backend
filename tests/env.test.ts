@@ -29,11 +29,12 @@ describe('loadEnv', () => {
       DIRECT_URL: VALID_DB_URL,
       JWT_SECRET: VALID_SECRET,
       SESSION_TTL_HOURS: 12,
-            TRUST_PROXY: false,
-                  GOOGLE_PLACES_BASE_URL: 'https://places.googleapis.com',
-                        GOOGLE_LIVE_REQUESTS: false,
+      TRUST_PROXY: false,
+      GOOGLE_PLACES_BASE_URL: 'https://places.googleapis.com',
+      GOOGLE_LIVE_REQUESTS: false,
       WORKER_CONCURRENCY: 4,
       WORKER_POLL_SECONDS: 5,
+      WORKER_CRAWL: true,
     });
   });
 
@@ -66,7 +67,7 @@ describe('loadEnv', () => {
     const err = expectEnvError({ ...VALID_BASE, JWT_SECRET: 'too-short' });
     expect(err.problems.some((p) => p.startsWith('JWT_SECRET'))).toBe(true);
   });
-  
+
   it('parses TRUST_PROXY=true as a boolean', () => {
     const env = loadEnv({ ...VALID_BASE, TRUST_PROXY: 'true' });
     expect(env.TRUST_PROXY).toBe(true);

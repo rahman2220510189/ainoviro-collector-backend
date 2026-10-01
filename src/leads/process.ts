@@ -66,7 +66,7 @@ export async function setPrimarySubcategories(
 
 export interface DedupeSummary {
   groups: DuplicateGroup[];
-    /** Same phone nearby, unrelated names: listed for a human, not merged. */
+  /** Same phone nearby, unrelated names: listed for a human, not merged. */
   possible: PossibleDuplicate[];
   /** Places removed by merging (0 in a dry run). */
   merged: number;
@@ -320,6 +320,24 @@ export interface PipelineSummary {
  * The whole lead-preparation pipeline, in order: de-duplication (merge), primary
  * subcategory, chains, quality gate + score. Safe to run any number of times.
  */
+/**
+ * Runs fn while holding a database-wide lock, so the worker and an export never run the
+ * lead pipeline (dedupe, merges, scores) at the same time.
+ */
+export async function withPipelineLock<T>(db: Pool, fn: () => Promise<T>): Promise<T> {
+  const client = await db.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', ['ainoviro-lead-pipeline']);
+    try {
+      return await fn();
+    } finally {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', ['ainoviro-lead-pipeline']);
+    }
+  } finally {
+    client.release();
+  }
+}
+
 export async function runLeadPipeline(
   db: Pool,
   countryCode: string,

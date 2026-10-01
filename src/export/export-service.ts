@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { AppError } from '../lib/errors';
-import { runLeadPipeline } from '../leads/process';
+import { runLeadPipeline, withPipelineLock } from '../leads/process';
 import { loadLeadRules } from '../leads/rules';
 import { toCsv } from './csv';
 import {
@@ -220,7 +220,7 @@ function filterSql(filters: ExportFilters): { sql: string; params: unknown[] } {
  * email not suppressed, not bounced/unsubscribed. "new" = never exported;
  * "all" = also rows exported before (still only NEW / EXPORTED businesses).
  */
-function scopeSql(scope: 'new' | 'all'): string {
+export function scopeSql(scope: 'new' | 'all'): string {
   const base = `p.country_code = $1 AND NOT p.needs_review AND NOT p.is_chain
     AND p.business_status NOT IN ('CLOSED_TEMPORARILY', 'CLOSED_PERMANENTLY')
     AND NOT ${SUPPRESSED}`;
@@ -273,7 +273,8 @@ export function createExportService(db: Pool): ExportService {
 
     async exportCsv(request, adminId) {
       // Fresh de-duplication, chains, quality gate and scores before anything is exported.
-      await runLeadPipeline(db, request.country, await loadLeadRules(db), false);
+      const rules = await loadLeadRules(db);
+      await withPipelineLock(db, () => runLeadPipeline(db, request.country, rules, false));
 
       const client = await db.connect();
       try {

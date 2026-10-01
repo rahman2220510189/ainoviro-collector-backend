@@ -33,7 +33,10 @@ export function authRoutes(env: Env, store: AuthStore): FastifyPluginAsync {
       }
 
       const token = await reply.jwtSign({ sub: String(admin.id), email: admin.email });
-      await store.recordLogin(admin.id, request.ip);
+      // The login itself is valid; a slow or failing audit write must not block it.
+      await store.recordLogin(admin.id, request.ip).catch((err: unknown) => {
+        request.log.warn({ err, adminId: admin.id }, 'Could not record the login');
+      });
       reply.setCookie(SESSION_COOKIE, token, sessionCookieOptions(env));
 
       return { user: { id: admin.id, email: admin.email } };
