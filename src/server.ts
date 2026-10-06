@@ -5,6 +5,8 @@ import { createLeadService } from './leads/lead-service';
 import { createSuppressionService } from './services/suppression-service';
 import { createDashboardService } from './services/dashboard-service';
 import { createSettingsService } from './services/settings-service';
+import { createDatasetService } from './datasets/dataset-service';
+import { createCountryService } from './services/country-service';
 import { createPrismaClient, pingDatabase } from './db/prisma';
 import { createPrismaAuthStore } from './auth/store';
 import { buildApp } from './app';
@@ -67,6 +69,8 @@ async function main(): Promise<void> {
     dashboardService: createDashboardService(pool),
     // A saved quota change applies to new jobs and previews at once.
     settingsService: createSettingsService(pool, { onQuotaChange: (s) => quota.setLimits(s) }),
+    datasetService: createDatasetService(pool),
+    countryService: createCountryService(pool),
   });
   app.log.info('Database connection OK');
 

@@ -11,6 +11,8 @@ export interface LeadFacts {
   businessStatus: string;
   isChain: boolean;
   hasCategory: boolean;
+  /** Its own website shows a shop, a cart or a marketplace shop (step 6.3). */
+  sellsOnline?: boolean;
   /** The place's primary email, or null when no email was found. */
   primary: {
     syntaxValid: boolean;
@@ -84,6 +86,7 @@ export function leadScore(facts: LeadFacts, rules: LeadRules['score']): number {
     score += rules.goodRating;
   if (facts.businessStatus === 'OPERATIONAL') score += rules.open;
   if (facts.isChain) score += rules.chain;
+  if (facts.sellsOnline) score += rules.sellsOnline;
   return score;
 }
 

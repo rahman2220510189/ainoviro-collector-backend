@@ -38,7 +38,7 @@ export async function claimNextTask(db: Pool, mode: RunMode): Promise<ClaimedTas
        FROM job_tasks t2
        JOIN jobs j ON j.id = t2.job_id
        WHERE t2.status = 'PENDING' AND t2.kind = 'DISCOVERY' AND j.status = 'RUNNING'
-         AND t2.tile->>'mode' = $1
+         AND t2.source = 'GOOGLE_PLACES' AND t2.tile->>'mode' = $1
        ORDER BY t2.job_id, t2.id
        LIMIT 1
        FOR UPDATE OF t2 SKIP LOCKED
@@ -65,6 +65,43 @@ export async function claimNextTask(db: Pool, mode: RunMode): Promise<ClaimedTas
   };
 }
 
+export type ClaimedOvertureTask = { id: number; jobId: number; tile: TaskTile };
+
+/**
+ * Takes the next free-data (Overture) task. These need no Google and cost nothing, so they
+ * run in any worker (also when Google searches are off) and also while the job is paused
+ * for the Google quota (spec: "remaining sources continue"). jobId limits it to one job.
+ */
+export async function claimNextOvertureTask(
+  db: Pool,
+  jobId: number | null = null,
+): Promise<ClaimedOvertureTask | null> {
+  const { rows } = await db.query<{ id: number; job_id: number; tile: TaskTile | null }>(
+    `UPDATE job_tasks t
+     SET status = 'RUNNING', attempts = t.attempts + 1, started_at = now(), updated_at = now()
+     WHERE t.id = (
+       SELECT t2.id
+       FROM job_tasks t2
+       JOIN jobs j ON j.id = t2.job_id
+       WHERE t2.status = 'PENDING' AND t2.kind = 'DISCOVERY' AND t2.source = 'OVERTURE'
+         AND j.status IN ('RUNNING', 'PAUSED_QUOTA')
+         AND ($1::int IS NULL OR t2.job_id = $1)
+       ORDER BY t2.job_id, t2.id
+       LIMIT 1
+       FOR UPDATE OF t2 SKIP LOCKED
+     )
+     RETURNING t.id, t.job_id, t.tile`,
+    [jobId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (!row.tile) {
+    await failTask(db, row.id, 'Task is missing its area');
+    return null;
+  }
+  return { id: row.id, jobId: row.job_id, tile: row.tile };
+}
+
 export async function completeTask(db: Pool, taskId: number, resultsCount: number): Promise<void> {
   await db.query(
     `UPDATE job_tasks SET status = 'DONE', results_count = $2, last_error = NULL,
@@ -84,7 +121,9 @@ export async function skipTask(db: Pool, taskId: number, note: string): Promise<
 
 /** Back in line after the job is resumed (e.g. quota reached). */
 export async function deferTask(db: Pool, taskId: number): Promise<void> {
-  await db.query(`UPDATE job_tasks SET status = 'DEFERRED', updated_at = now() WHERE id = $1`, [taskId]);
+  await db.query(`UPDATE job_tasks SET status = 'DEFERRED', updated_at = now() WHERE id = $1`, [
+    taskId,
+  ]);
 }
 
 export async function failTask(db: Pool, taskId: number, message: string): Promise<void> {
@@ -110,7 +149,11 @@ export async function isInCooldown(
 }
 
 /** Adds the 4 quadrant tasks of a saturated tile (idempotent via task_key). */
-export async function createChildTasks(db: Pool, parent: ClaimedTask, boxes: Bbox[]): Promise<number> {
+export async function createChildTasks(
+  db: Pool,
+  parent: ClaimedTask,
+  boxes: Bbox[],
+): Promise<number> {
   const children = boxes.map((box, index) => {
     const path = childPath(parent.tile.path, index);
     const tile: TaskTile = { ...parent.tile, ...box, path };
@@ -148,7 +191,14 @@ export async function createChildTasks(db: Pool, parent: ClaimedTask, boxes: Bbo
 
 export async function logQuery(
   db: Pool,
-  p: { locationId: number | null; tileKey: string; keyword: string; language: string; results: number; pages: number },
+  p: {
+    locationId: number | null;
+    tileKey: string;
+    keyword: string;
+    language: string;
+    results: number;
+    pages: number;
+  },
 ): Promise<void> {
   await db.query(
     `INSERT INTO query_log (source, location_id, tile_key, keyword, language, last_run_at, results, pages)
@@ -191,17 +241,23 @@ export async function failJob(db: Pool, jobId: number, message: string): Promise
   return (r.rowCount ?? 0) > 0;
 }
 
-/** RUNNING -> COMPLETED when no task is left to do. Safe when several workers race. */
-export async function maybeCompleteJob(db: Pool, jobId: number): Promise<boolean> {
-  const r = await db.query(
-    `UPDATE jobs SET status = 'COMPLETED', finished_at = now(), updated_at = now()
-     WHERE id = $1 AND status = 'RUNNING'
+/**
+ * RUNNING -> COMPLETED when no task is left to do. Safe when several workers race.
+ * After "Continue with free sources" (options.googleDeferred) the Google searches that
+ * wait for the quota stay DEFERRED and do not hold the job open; they can run later.
+ */
+export const COMPLETE_JOB_SQL = `UPDATE jobs j SET status = 'COMPLETED', finished_at = now(), updated_at = now()
+     WHERE j.id = $1 AND j.status = 'RUNNING'
        AND NOT EXISTS (
-         SELECT 1 FROM job_tasks
-         WHERE job_id = $1 AND status IN ('PENDING', 'RUNNING', 'DEFERRED')
-       )`,
-    [jobId],
-  );
+         SELECT 1 FROM job_tasks t
+         WHERE t.job_id = $1
+           AND (t.status IN ('PENDING', 'RUNNING')
+                OR (t.status = 'DEFERRED'
+                    AND NOT (t.source = 'GOOGLE_PLACES' AND j.options->>'googleDeferred' = 'true')))
+       )`;
+
+export async function maybeCompleteJob(db: Pool, jobId: number): Promise<boolean> {
+  const r = await db.query(COMPLETE_JOB_SQL, [jobId]);
   return (r.rowCount ?? 0) > 0;
 }
 

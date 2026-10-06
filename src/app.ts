@@ -28,6 +28,10 @@ import { suppressionRoutes } from './routes/suppression';
 import type { DashboardService } from './services/dashboard-service';
 import { dashboardRoutes } from './routes/dashboard';
 import type { SettingsService } from './services/settings-service';
+import type { DatasetService } from './datasets/dataset-service';
+import { datasetRoutes } from './routes/datasets';
+import { countryRoutes } from './routes/countries';
+import type { CountryService } from './services/country-service';
 import { settingsRoutes } from './routes/settings';
 
 /**
@@ -45,6 +49,8 @@ export interface AppDeps {
   suppressionService: SuppressionService;
   dashboardService: DashboardService;
   settingsService: SettingsService;
+  datasetService: DatasetService;
+  countryService: CountryService;
 }
 
 /**
@@ -119,6 +125,12 @@ export async function buildApp(env: Env, deps: AppDeps): Promise<FastifyInstance
         });
         await protectedApi.register(settingsRoutes(deps.settingsService), {
           prefix: '/settings',
+        });
+        await protectedApi.register(datasetRoutes(deps.datasetService), {
+          prefix: '/datasets',
+        });
+        await protectedApi.register(countryRoutes(deps.countryService), {
+          prefix: '/countries',
         });
       });
     },

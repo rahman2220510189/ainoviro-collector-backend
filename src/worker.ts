@@ -1,10 +1,15 @@
 /**
- * Background worker. It does three things, so a job started on the website runs to the end
+ * Background worker. It does these things, so a job started on the website runs to the end
  * without any command line:
  *   1. Google searches: claims discovery tasks of its own mode and runs them in parallel.
  *      Real Google is blocked unless GOOGLE_LIVE_REQUESTS=true (then only crawling runs).
+ *   1b. Free data (Overture): one task per area of a job. Always on: it costs nothing and
+ *      also runs while Google is paused for the quota.
+ *   1c. "Update Overture data" from the Settings page: download, merge, refresh leads.
  *   2. Website crawling (WORKER_CRAWL, default on): websites of new businesses are crawled
  *      for emails with the same polite rules as crawl:run.
+ *   2b. Online-shop check: home pages of businesses that already have an email are read
+ *      once, to see whether they sell online (one at a time, after the email crawling).
  *   3. Lead pipeline: after new results, de-duplication and scores are refreshed.
  * It also writes a heartbeat every 30 s, so the website can show whether it is running.
  *
@@ -22,9 +27,12 @@ import {
   type CrawlContext,
 } from './enrich/crawl-queue';
 import { MxChecker } from './enrich/mx';
+import { claimNextShopCheck, runShopCheck } from './enrich/shop-check';
 import { runDiscoveryTask, type DiscoveryContext } from './jobs/discovery';
 import { MOCK_QUOTA_PROVIDER, runModeFor } from './jobs/keys';
-import { claimNextTask, recoverStaleTasks } from './jobs/task-store';
+import { claimRefresh, runRefresh } from './datasets/refresh';
+import { runOvertureTask } from './jobs/overture-task';
+import { claimNextOvertureTask, claimNextTask, recoverStaleTasks } from './jobs/task-store';
 import { HEARTBEAT_SECONDS, writeHeartbeat } from './jobs/worker-heartbeat';
 import { runLeadPipeline, withPipelineLock } from './leads/process';
 import { loadLeadRules } from './leads/rules';
@@ -69,19 +77,13 @@ async function main(): Promise<void> {
   }
   const searching = searchOffReason === null;
   const crawling = env.WORKER_CRAWL;
-  if (!searching && !crawling) {
-    throw new StartupError(
-      `Nothing to do: Google searches are off (${searchOffReason}) and WORKER_CRAWL is "false".\n` +
-        'For development use the mock: GOOGLE_PLACES_BASE_URL=http://127.0.0.1:5055',
-    );
-  }
 
   const prisma = createPrismaClient(env);
   const crawlerSettings = await loadCrawlerSettings(prisma);
   const crawlConcurrency = crawling ? crawlerSettings.concurrency : 0;
   const pool = new Pool({
     connectionString: env.DATABASE_URL,
-    max: env.WORKER_CONCURRENCY + crawlConcurrency + 3,
+    max: env.WORKER_CONCURRENCY + crawlConcurrency + 5,
   });
   const quota = new QuotaGuard(prisma, await loadQuotaSettings(prisma));
   const searchSettings = await loadSearchSettings(prisma);
@@ -148,24 +150,68 @@ async function main(): Promise<void> {
       }
     }
   };
-  if (searching) {
-    const recovered = await recoverStaleTasks(pool, LEASE_MINUTES);
-    if (recovered > 0) log.warn({ recovered }, 'Returned abandoned tasks to the queue');
-    recoveryTimer = setInterval(() => {
-      recoverStaleTasks(pool, LEASE_MINUTES).catch((err: unknown) =>
-        log.error({ err }, 'Stale task recovery failed'),
-      );
-    }, 60_000);
-  } else {
-    log.warn(`Google searches are OFF: ${searchOffReason}. Jobs wait; only crawling runs.`);
+  // Every worker runs free-data tasks, so stuck tasks are recovered by every worker.
+  const recovered = await recoverStaleTasks(pool, LEASE_MINUTES);
+  if (recovered > 0) log.warn({ recovered }, 'Returned abandoned tasks to the queue');
+  recoveryTimer = setInterval(() => {
+    recoverStaleTasks(pool, LEASE_MINUTES).catch((err: unknown) =>
+      log.error({ err }, 'Stale task recovery failed'),
+    );
+  }, 60_000);
+  if (!searching) {
+    log.warn(
+      `Google searches are OFF: ${searchOffReason}. Google tasks wait; free data and crawling run.`,
+    );
   }
+
+  // --- 1b. Free data (Overture) ----------------------------------------------------------
+  const sharedMx = new MxChecker();
+  const overtureLoop = async (): Promise<void> => {
+    const pollMs = env.WORKER_POLL_SECONDS * 1000;
+    while (!stopping) {
+      try {
+        const task = await claimNextOvertureTask(pool);
+        if (!task) {
+          await idle(pollMs, stopped);
+          continue;
+        }
+        const result = await runOvertureTask({ db: pool, mx: sharedMx, log }, task);
+        if (result && result.newPlaces > 0) dirty = true;
+      } catch (err) {
+        log.error({ err }, 'Free data loop error');
+        await idle(pollMs, stopped);
+      }
+    }
+  };
+
+  // --- 1c. Overture update requested on the Settings page ---------------------------------
+  const refreshLoop = async (): Promise<void> => {
+    while (!stopping) {
+      try {
+        const claimed = await claimRefresh(pool);
+        if (claimed) {
+          log.info({ country: claimed.countryCode }, 'Overture update started');
+          const done = await runRefresh(pool, claimed, {
+            mx: sharedMx,
+            databaseUrl: env.DATABASE_URL,
+            log: (line) => log.info(`Overture update: ${line.trim()}`),
+          });
+          if (done.state === 'DONE') log.info({ result: done.result }, 'Overture update finished');
+          else log.error({ error: done.error }, 'Overture update failed');
+        }
+      } catch (err) {
+        log.error({ err }, 'Overture update loop error');
+      }
+      await idle(30_000, stopped);
+    }
+  };
 
   // --- 2. Website crawling -------------------------------------------------------------
   const crawlCtx: CrawlContext | null = crawling
     ? {
         db: pool,
         settings: crawlerSettings,
-        mx: new MxChecker(),
+        mx: sharedMx,
         freeDomains: await loadFreeDomainSet(pool),
       }
     : null;
@@ -190,6 +236,28 @@ async function main(): Promise<void> {
         if (outcome.saved.inserted > 0) dirty = true;
       } catch (err) {
         log.error({ err, worker }, 'Crawl loop error');
+        await idle(CRAWL_IDLE_MS, stopped);
+      }
+    }
+  };
+
+  // --- 2b. Online-shop check (home page only) ------------------------------------------
+  const shopLoop = async (): Promise<void> => {
+    if (!crawling) return;
+    while (!stopping) {
+      try {
+        const claimed = await claimNextShopCheck(pool);
+        if (!claimed) {
+          await idle(60_000, stopped);
+          continue;
+        }
+        const found = await runShopCheck(pool, claimed, crawlerSettings);
+        if (found.sellsOnline) {
+          log.info({ domain: claimed.domain, signals: found.signals }, 'Sells online');
+          dirty = true;
+        }
+      } catch (err) {
+        log.error({ err }, 'Shop check loop error');
         await idle(CRAWL_IDLE_MS, stopped);
       }
     }
@@ -223,7 +291,7 @@ async function main(): Promise<void> {
     const rules = await loadLeadRules(pool);
     for (const { country_code: country } of rows) {
       const summary = await withPipelineLock(pool, () =>
-        runLeadPipeline(pool, country, rules, false),
+        runLeadPipeline(pool, country, rules, false, (line) => log.info(`Leads: ${line.trim()}`)),
       );
       log.info({ country, ready: summary.ready }, 'Leads refreshed');
     }
@@ -254,6 +322,9 @@ async function main(): Promise<void> {
   );
 
   const loops = [
+    overtureLoop(),
+    refreshLoop(),
+    shopLoop(),
     ...(searching
       ? Array.from({ length: env.WORKER_CONCURRENCY }, (_, i) => searchLoop(i + 1))
       : []),

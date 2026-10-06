@@ -55,7 +55,10 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
 
     if (coolingDown) {
       await store.skipTask(ctx.db, task.id, COOLDOWN_NOTE);
-      ctx.log.info({ taskId: task.id, keyword: task.keyword, tile: tileKey }, 'Task skipped (cooldown)');
+      ctx.log.info(
+        { taskId: task.id, keyword: task.keyword, tile: tileKey },
+        'Task skipped (cooldown)',
+      );
     } else {
       const client = new GooglePlacesClient({
         apiKey: ctx.apiKey,
@@ -75,13 +78,23 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
 
       if (result.saturated && task.depth < MAX_SPLIT_DEPTH) {
         const created = await store.createChildTasks(ctx.db, task, splitBbox(tileBox(task.tile)));
-        await store.addEvent(ctx.db, task.jobId, 'INFO', 'tile_split',
+        await store.addEvent(
+          ctx.db,
+          task.jobId,
+          'INFO',
+          'tile_split',
           `"${task.keyword}" hit 60 results in ${task.tile.areaKey}; split into ${created} smaller tiles`,
-          { taskId: task.id, depth: task.depth + 1 });
+          { taskId: task.id, depth: task.depth + 1 },
+        );
       } else if (result.saturated) {
-        await store.addEvent(ctx.db, task.jobId, 'WARN', 'tile_full_at_max_depth',
+        await store.addEvent(
+          ctx.db,
+          task.jobId,
+          'WARN',
+          'tile_full_at_max_depth',
           `"${task.keyword}" still hit 60 results at the smallest tile size; some places may be missing`,
-          { taskId: task.id });
+          { taskId: task.id },
+        );
       }
 
       await store.logQuery(ctx.db, {
@@ -95,8 +108,15 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
       await store.completeTask(ctx.db, task.id, result.places.length);
 
       ctx.log.info(
-        { taskId: task.id, keyword: task.keyword, area: task.tile.areaKey, tile: task.tile.path || 'root',
-          results: result.places.length, new: written.inserted, pages: result.pages },
+        {
+          taskId: task.id,
+          keyword: task.keyword,
+          area: task.tile.areaKey,
+          tile: task.tile.path || 'root',
+          results: result.places.length,
+          new: written.inserted,
+          pages: result.pages,
+        },
         'Task done',
       );
     }
@@ -107,29 +127,50 @@ export async function runDiscoveryTask(ctx: DiscoveryContext, task: ClaimedTask)
         // runs again from page 1 on resume; the upsert makes the repeat harmless.
         try {
           const kept = await writeGooglePlaces(ctx.db, err.partialPlaces, writeContext);
-          await store.addEvent(ctx.db, task.jobId, 'INFO', 'partial_results_saved',
+          await store.addEvent(
+            ctx.db,
+            task.jobId,
+            'INFO',
+            'partial_results_saved',
             `Quota ran out during "${task.keyword}"; saved ${err.partialPlaces.length} results already fetched`,
-            { taskId: task.id, inserted: kept.inserted });
+            { taskId: task.id, inserted: kept.inserted },
+          );
         } catch (saveErr) {
           ctx.log.error({ taskId: task.id, err: saveErr }, 'Could not save partial results');
         }
       }
+      // Pause first, then defer: a deferred task must never let a still-RUNNING job finish.
+      const paused = await store.pauseJobForQuota(ctx.db, task.jobId);
       await store.deferTask(ctx.db, task.id);
-      if (await store.pauseJobForQuota(ctx.db, task.jobId)) {
-        await store.addEvent(ctx.db, task.jobId, 'WARN', 'job_paused_quota',
-          `Job paused by the quota guard: ${err.reason}`, { reason: err.reason });
+      if (paused) {
+        await store.addEvent(
+          ctx.db,
+          task.jobId,
+          'WARN',
+          'job_paused_quota',
+          `Google paused by the quota guard: ${err.reason}. Free sources continue.`,
+          { reason: err.reason },
+        );
       }
       ctx.log.warn({ taskId: task.id, reason: err.reason }, 'Quota refused: job paused');
     } else if (err instanceof GooglePlacesError && !err.retryable) {
       await store.failTask(ctx.db, task.id, err.message);
       if (await store.failJob(ctx.db, task.jobId, err.message)) {
-        await store.addEvent(ctx.db, task.jobId, 'ERROR', 'job_failed', err.message, { httpStatus: err.httpStatus });
+        await store.addEvent(ctx.db, task.jobId, 'ERROR', 'job_failed', err.message, {
+          httpStatus: err.httpStatus,
+        });
       }
       ctx.log.error({ taskId: task.id, err: err.message }, 'Permanent Google error: job failed');
     } else {
       const message = err instanceof Error ? err.message : String(err);
       await store.failTask(ctx.db, task.id, message);
-      await store.addEvent(ctx.db, task.jobId, 'ERROR', 'task_failed', `Task ${task.id} ("${task.keyword}") failed: ${message}`);
+      await store.addEvent(
+        ctx.db,
+        task.jobId,
+        'ERROR',
+        'task_failed',
+        `Task ${task.id} ("${task.keyword}") failed: ${message}`,
+      );
       ctx.log.error({ taskId: task.id, err: message }, 'Task failed');
     }
   }

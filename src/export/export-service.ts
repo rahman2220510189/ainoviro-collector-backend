@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { AppError } from '../lib/errors';
+import { isExportEnabled } from '../services/country-service';
 import { runLeadPipeline, withPipelineLock } from '../leads/process';
 import { loadLeadRules } from '../leads/rules';
 import { toCsv } from './csv';
@@ -25,6 +26,8 @@ export const exportFiltersSchema = z.object({
   /** Subcategory slug (one of the 65). */
   subcategory: z.string().trim().min(1).optional(),
   minScore: z.coerce.number().int().optional(),
+  /** Only businesses that already sell online ("yes"). */
+  sellsOnline: z.enum(['yes', 'no']).optional(),
   /** At most this many rows (best scores first). */
   limit: z.coerce.number().int().min(1).max(100_000).optional(),
 });
@@ -212,6 +215,12 @@ function filterSql(filters: ExportFilters): { sql: string; params: unknown[] } {
       filters.subcategory,
     );
   if (filters.minScore !== undefined) add((n) => `p.score >= $${n}`, filters.minScore);
+  if (filters.sellsOnline)
+    parts.push(
+      filters.sellsOnline === 'yes'
+        ? 'EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)'
+        : 'NOT EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)',
+    );
   return { sql: parts.map((p) => ` AND ${p}`).join(''), params };
 }
 
@@ -272,6 +281,14 @@ export function createExportService(db: Pool): ExportService {
     },
 
     async exportCsv(request, adminId) {
+      // Safety switch per country (Settings, Countries): only approved countries export.
+      if (!(await isExportEnabled(db, request.country))) {
+        throw new AppError(
+          409,
+          'COUNTRY_EXPORT_DISABLED',
+          `CSV export for ${request.country} is switched off. Turn it on in Settings, Countries.`,
+        );
+      }
       // Fresh de-duplication, chains, quality gate and scores before anything is exported.
       const rules = await loadLeadRules(db);
       await withPipelineLock(db, () => runLeadPipeline(db, request.country, rules, false));

@@ -1,14 +1,17 @@
 import type { PrismaClient } from '../generated/prisma/client';
+import { loadCountryConfig } from '../geonames/config';
 import { AppError } from '../lib/errors';
 import { planSearchAreas, type SearchPlan } from '../planning/search-areas';
 import { createPrismaLocationStore } from '../services/locations';
 import { loadPlanningCities } from '../services/search-planning';
 import { loadSearchSettings } from '../services/settings';
 import { DEFAULT_AVERAGE_PAGES, estimateCost, type CostEstimate } from './cost';
+import { countOvertureInBoxes, hasOvertureData } from './overture-counts';
 import {
   COOLDOWN_NOTE,
   MOCK_TILE_PREFIX,
   discoveryTaskKey,
+  overtureTaskKey,
   queryLogTileKey,
   type RunMode,
   type TaskTile,
@@ -26,22 +29,34 @@ export interface JobRequest {
   locationIds?: number[];
   /** Empty = all categories. */
   categorySlugs: string[];
+  /** Old name of localLanguages (Cyprus: Greek). */
   greek: boolean;
+  /** Also search with the country's own keyword languages (seed/countries.json). */
+  localLanguages?: boolean;
   includeRural?: boolean;
   minCityPopulation?: number;
   forceRerun: boolean;
+  /**
+   * Which sources to use, in order. Default: Google, plus the free Overture data when it
+   * is imported for the country. Overture only = no Google requests at all.
+   */
+  sources?: JobSource[];
 }
+
+export const JOB_SOURCES = ['GOOGLE_PLACES', 'OVERTURE'] as const;
+export type JobSource = (typeof JOB_SOURCES)[number];
 
 type TaskInput = {
   kind: 'DISCOVERY';
   taskKey: string;
-  source: 'GOOGLE_PLACES';
+  source: JobSource;
   status: 'PENDING' | 'SKIPPED';
   lastError: string | null;
   locationId: number;
-  subcategoryId: number;
-  keyword: string;
-  language: string;
+  /** Google: one search per subcategory keyword. Overture: one task per area (null). */
+  subcategoryId: number | null;
+  keyword: string | null;
+  language: string | null;
   tile: TaskTile;
   depth: number;
 };
@@ -67,9 +82,25 @@ export interface PreparedJob {
   tasks: TaskInput[];
   skippedByCooldown: number;
   cost: CostEstimate;
+  sources: JobSource[];
+  /** Overture data is imported for this country. */
+  overtureAvailable: boolean;
+  overtureTasks: number;
+  /** Overture businesses already known in this scope and categories. */
+  overtureKnown: { businesses: number; withEmail: number };
 }
 
 const invalid = (message: string): AppError => new AppError(400, 'INVALID_JOB_REQUEST', message);
+
+/** Keyword languages of a country (English first); English only when not configured. */
+function countryLanguages(countryCode: string): string[] {
+  try {
+    const langs = loadCountryConfig(countryCode).keywordLanguages;
+    return langs.includes('en') ? langs : ['en', ...langs];
+  } catch {
+    return ['en'];
+  }
+}
 
 /**
  * Plans a discovery job without saving it: scope, areas, keywords, tasks,
@@ -84,7 +115,8 @@ export async function prepareDiscoveryJob(
   const settings = await loadSearchSettings(prisma);
   const includeRural = request.includeRural ?? settings.includeRural;
   const minCityPopulation = request.minCityPopulation ?? settings.minCityPopulation;
-  const languages = request.greek ? ['en', 'el'] : ['en'];
+  const local = request.localLanguages ?? request.greek;
+  const languages = local ? countryLanguages(countryCode) : ['en'];
 
   const country = await prisma.location.findFirst({
     where: { type: 'COUNTRY', countryCode, active: true },
@@ -169,6 +201,20 @@ export async function prepareDiscoveryJob(
   });
   if (keywords.length === 0) throw invalid('No active keywords for this selection.');
 
+  const overtureAvailable = await hasOvertureData(prisma, countryCode);
+  const sources: JobSource[] = request.sources
+    ? JOB_SOURCES.filter((s) => request.sources?.includes(s))
+    : overtureAvailable
+      ? ['GOOGLE_PLACES', 'OVERTURE']
+      : ['GOOGLE_PLACES'];
+  if (sources.length === 0) throw invalid('Choose at least one source.');
+  if (sources.includes('OVERTURE') && !overtureAvailable) {
+    throw invalid(
+      `There is no Overture data for ${countryCode} yet. Import it first (Settings, Data sources).`,
+    );
+  }
+  const useGoogle = sources.includes('GOOGLE_PLACES');
+
   const cityIds = await createPrismaLocationStore(prisma).resolveCityIds(scopeIds);
   if (cityIds.length === 0) throw invalid('The chosen locations contain no cities.');
   const { cities } = await loadPlanningCities(prisma, cityIds);
@@ -191,40 +237,78 @@ export async function prepareDiscoveryJob(
     : [];
   const recentSet = new Set(recent.map((r) => `${r.tileKey}|${r.keyword}|${r.language}`));
 
-  const tasks: TaskInput[] = plan.areas.flatMap((area) =>
-    keywords.map((k): TaskInput => {
-      const coolingDown = recentSet.has(`${rootKey(area.key)}|${k.keyword}|${k.language}`);
-      const tile: TaskTile = {
-        ...area.bbox,
-        areaKey: area.key,
-        areaKind: area.kind,
-        path: '',
-        countryCode,
-        cityId: area.kind === 'CITY' ? area.locationId : null,
-        mode: ctx.mode,
-        forceRerun: request.forceRerun,
-      };
-      return {
-        kind: 'DISCOVERY',
-        taskKey: discoveryTaskKey({
-          areaKey: area.key,
-          path: '',
-          subcategoryId: k.subcategoryId,
-          keyword: k.keyword,
-          language: k.language,
+  const googleTasks: TaskInput[] = !useGoogle
+    ? []
+    : plan.areas.flatMap((area) =>
+        keywords.map((k): TaskInput => {
+          const coolingDown = recentSet.has(`${rootKey(area.key)}|${k.keyword}|${k.language}`);
+          const tile: TaskTile = {
+            ...area.bbox,
+            areaKey: area.key,
+            areaKind: area.kind,
+            path: '',
+            countryCode,
+            cityId: area.kind === 'CITY' ? area.locationId : null,
+            mode: ctx.mode,
+            forceRerun: request.forceRerun,
+          };
+          return {
+            kind: 'DISCOVERY',
+            taskKey: discoveryTaskKey({
+              areaKey: area.key,
+              path: '',
+              subcategoryId: k.subcategoryId,
+              keyword: k.keyword,
+              language: k.language,
+            }),
+            source: 'GOOGLE_PLACES',
+            status: coolingDown ? 'SKIPPED' : 'PENDING',
+            lastError: coolingDown ? COOLDOWN_NOTE : null,
+            locationId: area.locationId,
+            subcategoryId: k.subcategoryId,
+            keyword: k.keyword,
+            language: k.language,
+            tile,
+            depth: 0,
+          };
         }),
-        source: 'GOOGLE_PLACES',
-        status: coolingDown ? 'SKIPPED' : 'PENDING',
-        lastError: coolingDown ? COOLDOWN_NOTE : null,
+      );
+
+  // Free data: one task per area; it needs no keywords and no Google.
+  const overtureTasks: TaskInput[] = !sources.includes('OVERTURE')
+    ? []
+    : plan.areas.map((area) => ({
+        kind: 'DISCOVERY',
+        taskKey: overtureTaskKey(area.key),
+        source: 'OVERTURE',
+        status: 'PENDING',
+        lastError: null,
         locationId: area.locationId,
-        subcategoryId: k.subcategoryId,
-        keyword: k.keyword,
-        language: k.language,
-        tile,
+        subcategoryId: null,
+        keyword: null,
+        language: null,
+        tile: {
+          ...area.bbox,
+          areaKey: area.key,
+          areaKind: area.kind,
+          areaName: area.name,
+          path: '',
+          countryCode,
+          cityId: area.kind === 'CITY' ? area.locationId : null,
+          mode: ctx.mode,
+          forceRerun: request.forceRerun,
+        },
         depth: 0,
-      };
-    }),
-  );
+      }));
+  const tasks = [...overtureTasks, ...googleTasks];
+  const subcategoryIds = [...new Set(keywords.map((k) => k.subcategoryId))];
+  const overtureKnown = overtureAvailable
+    ? await countOvertureInBoxes(prisma, {
+        boxes: plan.areas.map((a) => a.bbox),
+        subcategoryIds,
+        allCategories: request.categorySlugs.length === 0,
+      })
+    : { businesses: 0, withEmail: 0 };
 
   // Average pages per search seen before (same mode), for a realistic estimate.
   const history = await prisma.queryLog.aggregate({
@@ -243,7 +327,7 @@ export async function prepareDiscoveryJob(
     history._count._all > 0 && history._avg.pages !== null
       ? history._avg.pages
       : DEFAULT_AVERAGE_PAGES;
-  const tasksToRun = tasks.filter((t) => t.status === 'PENDING').length;
+  const tasksToRun = googleTasks.filter((t) => t.status === 'PENDING').length;
 
   return {
     name: request.name ?? scopeLabel,
@@ -261,10 +345,14 @@ export async function prepareDiscoveryJob(
     plan,
     keywordCount: keywords.length,
     cityIds: cities.map((c) => c.id),
-    subcategoryIds: [...new Set(keywords.map((k) => k.subcategoryId))],
+    subcategoryIds,
     tasks,
-    skippedByCooldown: tasks.length - tasksToRun,
+    skippedByCooldown: googleTasks.length - tasksToRun,
     cost: estimateCost({ tasksToRun, averagePages, freeRemaining: ctx.freeRemaining }),
+    sources,
+    overtureAvailable,
+    overtureTasks: overtureTasks.length,
+    overtureKnown,
   };
 }
 
@@ -274,7 +362,7 @@ export async function saveDiscoveryJob(
   job: PreparedJob,
   createdById?: number,
 ): Promise<number> {
-  if (job.cost.minimum === 0) {
+  if (job.cost.minimum === 0 && job.overtureTasks === 0) {
     throw invalid(
       `Every search in this job ran within the last ${job.cooldownDays} days (cooldown). ` +
         'Use force re-run to search again.',
@@ -287,7 +375,7 @@ export async function saveDiscoveryJob(
         data: {
           name: job.name,
           status: 'QUEUED',
-          sourcePlan: ['GOOGLE_PLACES'],
+          sourcePlan: job.sources,
           createdById,
           options: {
             mode: job.mode,
@@ -300,6 +388,7 @@ export async function saveDiscoveryJob(
             includeRural: job.includeRural,
             minCityPopulation: job.minCityPopulation,
             forceRerun: job.forceRerun,
+            sources: job.sources,
           },
           estimate: {
             areas: job.plan.areas.length,
@@ -311,6 +400,8 @@ export async function saveDiscoveryJob(
             maximumWithoutSplits: job.cost.maximumWithoutSplits,
             freeRemainingAtCreation: job.cost.freeRemaining,
             verdict: job.cost.verdict,
+            overtureTasks: job.overtureTasks,
+            overtureKnown: job.overtureKnown,
           },
         },
         select: { id: true },
@@ -330,7 +421,10 @@ export async function saveDiscoveryJob(
         data: {
           jobId: created.id,
           type: 'job_created',
-          message: `Created (${job.mode}) with ${job.tasks.length} tasks, ${job.skippedByCooldown} skipped by cooldown`,
+          message:
+            `Created (${job.mode}) with ${job.tasks.length} tasks` +
+            (job.overtureTasks > 0 ? ` (${job.overtureTasks} free-data areas)` : '') +
+            `, ${job.skippedByCooldown} skipped by cooldown`,
         },
       });
       return created.id;

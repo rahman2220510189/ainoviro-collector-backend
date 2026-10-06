@@ -2,9 +2,302 @@
   "version": 1,
   "countries": {
     "CY": {
+      "name": "Cyprus",
       "useAdmin2": false,
       "localScript": "Greek",
       "keywordLanguages": ["en", "el"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "AT": {
+      "name": "Austria",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "de"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "BE": {
+      "name": "Belgium",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "nl", "fr"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "BG": {
+      "name": "Bulgaria",
+      "useAdmin2": false,
+      "localScript": "Cyrillic",
+      "keywordLanguages": ["en", "bg"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "HR": {
+      "name": "Croatia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "hr"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "CZ": {
+      "name": "Czechia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "cs"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "DK": {
+      "name": "Denmark",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "da"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "EE": {
+      "name": "Estonia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "et"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "FI": {
+      "name": "Finland",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "fi", "sv"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "FR": {
+      "name": "France",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "fr"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "DE": {
+      "name": "Germany",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "de"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "GR": {
+      "name": "Greece",
+      "useAdmin2": false,
+      "localScript": "Greek",
+      "keywordLanguages": ["en", "el"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "HU": {
+      "name": "Hungary",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "hu"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "IE": {
+      "name": "Ireland",
+      "useAdmin2": false,
+      "keywordLanguages": ["en"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "IT": {
+      "name": "Italy",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "it"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "LV": {
+      "name": "Latvia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "lv"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "LT": {
+      "name": "Lithuania",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "lt"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "LU": {
+      "name": "Luxembourg",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "fr", "de"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "MT": {
+      "name": "Malta",
+      "useAdmin2": false,
+      "keywordLanguages": ["en"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "NL": {
+      "name": "Netherlands",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "nl"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "NO": {
+      "name": "Norway",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "no"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "PL": {
+      "name": "Poland",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "pl"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "PT": {
+      "name": "Portugal",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "pt"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "RO": {
+      "name": "Romania",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "ro"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "SK": {
+      "name": "Slovakia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "sk"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "SI": {
+      "name": "Slovenia",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "sl"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "ES": {
+      "name": "Spain",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "es"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "SE": {
+      "name": "Sweden",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "sv"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "CH": {
+      "name": "Switzerland",
+      "useAdmin2": false,
+      "keywordLanguages": ["en", "de", "fr", "it"],
+      "cityRadius": {
+        "minKm": 1.5,
+        "maxKm": 15,
+        "kmPerSqrtPopulation": 0.02
+      }
+    },
+    "GB": {
+      "name": "United Kingdom",
+      "useAdmin2": false,
+      "keywordLanguages": ["en"],
       "cityRadius": {
         "minKm": 1.5,
         "maxKm": 15,

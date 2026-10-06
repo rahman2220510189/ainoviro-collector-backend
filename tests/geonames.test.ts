@@ -45,6 +45,7 @@ const DUMP = [
 ].join('\n');
 
 const CONFIG: CountryConfig = {
+  name: 'Cyprus',
   useAdmin2: false,
   localScript: 'Greek',
   keywordLanguages: ['en', 'el'],

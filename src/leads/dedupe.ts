@@ -44,13 +44,17 @@ const NOISE_WORDS = new Set(
   ).split(' '),
 );
 
+/** Place words of the country being matched (its cities, set by findDuplicates). */
+type NoiseSet = ReadonlySet<string>;
+const NO_EXTRA: NoiseSet = new Set();
+
 /** Name used for similarity: normalized, punctuation removed, place words dropped. */
-export function comparableName(nameNormalized: string): string {
+export function comparableName(nameNormalized: string, extraNoise: NoiseSet = NO_EXTRA): string {
   const words = nameNormalized
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .split(' ')
-    .filter((w) => w !== '' && !NOISE_WORDS.has(w));
+    .filter((w) => w !== '' && !NOISE_WORDS.has(w) && !extraNoise.has(w));
   return words.join(' ');
 }
 
@@ -65,9 +69,9 @@ function bigrams(text: string): Map<string, number> {
 }
 
 /** Dice coefficient on character pairs of the comparable names: 1 = same, 0 = nothing shared. */
-export function nameSimilarity(a: string, b: string): number {
-  const x = comparableName(a);
-  const y = comparableName(b);
+export function nameSimilarity(a: string, b: string, extraNoise: NoiseSet = NO_EXTRA): number {
+  const x = comparableName(a, extraNoise);
+  const y = comparableName(b, extraNoise);
   if (x === '' || y === '') return 0;
   if (x === y) return 1;
   const gx = bigrams(x);
@@ -98,9 +102,13 @@ const GENERIC_WORDS = new Set(
  * "Ctsangara Makeup" share "tsangara" (inside "ctsangara"); "Glamour Lashes" and
  * "Sei Bella Nails" share nothing. Generic words and words shorter than 3 letters do not count.
  */
-export function sharesDistinctiveWord(a: string, b: string): boolean {
+export function sharesDistinctiveWord(
+  a: string,
+  b: string,
+  extraNoise: NoiseSet = NO_EXTRA,
+): boolean {
   const words = (name: string): string[] =>
-    comparableName(name)
+    comparableName(name, extraNoise)
       .split(' ')
       .filter((w) => w.length >= 3 && !GENERIC_WORDS.has(w));
   const wa = words(a);
@@ -157,6 +165,8 @@ export function findDuplicates(
   places: DedupePlace[],
   rules: LeadRules['dedupe'],
   freeDomains: ReadonlySet<string> = new Set(),
+  /** City and region words of the country ("athens", "thessaloniki"), like NOISE_WORDS. */
+  placeWords: NoiseSet = NO_EXTRA,
 ): DuplicateResult {
   const possible: PossibleDuplicate[] = [];
   const uf = new UnionFind();
@@ -190,10 +200,14 @@ export function findDuplicates(
           const meters = metersBetween(a, b);
           const close =
             meters === null
-              ? nameSimilarity(a.nameNormalized, b.nameNormalized) >= rules.nameSimilarity
+              ? nameSimilarity(a.nameNormalized, b.nameNormalized, placeWords) >=
+                rules.nameSimilarity
               : meters <= rules.sameKeyMaxMeters;
           if (!close) continue;
-          if (reason === 'PHONE' && !sharesDistinctiveWord(a.nameNormalized, b.nameNormalized))
+          if (
+            reason === 'PHONE' &&
+            !sharesDistinctiveWord(a.nameNormalized, b.nameNormalized, placeWords)
+          )
             possible.push({ ids: [a.id, b.id], reason });
           else join(a, b, reason);
         }
@@ -222,7 +236,9 @@ export function findDuplicates(
           if (b.id <= a.id) continue;
           const meters = metersBetween(a, b);
           if (meters === null || meters > rules.sameNameMaxMeters) continue;
-          if (nameSimilarity(a.nameNormalized, b.nameNormalized) >= rules.nameSimilarity)
+          if (
+            nameSimilarity(a.nameNormalized, b.nameNormalized, placeWords) >= rules.nameSimilarity
+          )
             join(a, b, 'NAME');
         }
       }

@@ -32,6 +32,8 @@ export const leadFiltersSchema = z.object({
   /** new = not exported yet; exported = already in a CSV. */
   exported: z.enum(['new', 'exported']).optional(),
   chain: yesNo,
+  /** The business already sells online (its website shows a shop, cart or marketplace shop). */
+  sellsOnline: yesNo,
   /** Default "yes": the leads list shows businesses with an email; "any" shows all places. */
   hasEmail: z.enum(['yes', 'no', 'any']).default('yes'),
   /** Searches the name, email and website. */
@@ -58,6 +60,8 @@ export interface LeadRow {
   reviewReasons: string[];
   isChain: boolean;
   exportedAt: Date | null;
+  /** Shop system, cart or marketplace shop found on its website (step 6.3). */
+  onlineSignals: string[];
 }
 
 export interface LeadPage {
@@ -90,6 +94,8 @@ export interface LeadDetail {
   firstSeenAt: Date;
   lastSeenAt: Date;
   lastCrawledAt: Date | null;
+  /** Online-shop check of its website (step 6.3); null = not checked yet. */
+  shopCheck: { sellsOnline: boolean | null; signals: string[]; checkedAt: Date | null } | null;
   emails: {
     id: number;
     email: string;
@@ -162,6 +168,12 @@ function whereSql(f: LeadFilters): { sql: string; params: unknown[] } {
   if (f.minScore !== undefined) add((n) => `p.score >= ${n}`, f.minScore);
   if (f.needsReview) parts.push(f.needsReview === 'yes' ? 'p.needs_review' : 'NOT p.needs_review');
   if (f.chain) parts.push(f.chain === 'yes' ? 'p.is_chain' : 'NOT p.is_chain');
+  if (f.sellsOnline)
+    parts.push(
+      f.sellsOnline === 'yes'
+        ? 'EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)'
+        : 'NOT EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)',
+    );
   if (f.exported === 'new') parts.push('e.exported_at IS NULL');
   if (f.exported === 'exported') parts.push('e.exported_at IS NOT NULL');
   if (f.q)
@@ -214,11 +226,14 @@ export function createLeadService(db: Pool): LeadService {
         review_reasons: string[];
         is_chain: boolean;
         exported_at: Date | null;
+        online_signals: string[] | null;
       }>(
         `SELECT p.id, p.name, e.email_normalized AS email, e.email_type, e.is_own_domain,
                 (SELECT count(*) FROM emails x WHERE x.place_id = p.id AND NOT x.is_primary) AS extra_emails,
                 p.phone_e164, p.website, p.city_name, p.score, p.status, p.needs_review,
                 p.review_reasons, p.is_chain, e.exported_at,
+                (SELECT sc.signals FROM domain_shop_checks sc
+                   WHERE sc.domain = p.website_domain AND sc.sells_online) AS online_signals,
                 (SELECT c.display_name FROM place_subcategories ps JOIN subcategories s ON s.id = ps.subcategory_id
                    JOIN categories c ON c.id = s.category_id WHERE ps.place_id = p.id
                    ORDER BY ps.is_primary DESC, ps.created_at LIMIT 1) AS category
@@ -245,6 +260,7 @@ export function createLeadService(db: Pool): LeadService {
           reviewReasons: r.review_reasons,
           isChain: r.is_chain,
           exportedAt: r.exported_at,
+          onlineSignals: r.online_signals ?? [],
         })),
         total: Number(total.rows[0]?.n ?? 0),
         page: f.page,
@@ -321,6 +337,18 @@ export function createLeadService(db: Pool): LeadService {
          ORDER BY at DESC LIMIT 50`,
         [String(id)],
       );
+      const shop = p.website_domain
+        ? await db.query<{
+            sells_online: boolean | null;
+            signals: string[];
+            checked_at: Date | null;
+          }>(
+            `SELECT sells_online, signals, checked_at FROM domain_shop_checks
+             WHERE domain = $1 AND status <> 'RUNNING'`,
+            [p.website_domain],
+          )
+        : null;
+      const sc = shop?.rows[0];
       return {
         id: p.id as number,
         name: p.name as string,
@@ -344,6 +372,9 @@ export function createLeadService(db: Pool): LeadService {
         firstSeenAt: p.first_seen_at as Date,
         lastSeenAt: p.last_seen_at as Date,
         lastCrawledAt: p.last_crawled_at as Date | null,
+        shopCheck: sc
+          ? { sellsOnline: sc.sells_online, signals: sc.signals, checkedAt: sc.checked_at }
+          : null,
         emails: emails.rows.map((e) => ({
           id: e.id,
           email: e.email_normalized,

@@ -1,5 +1,6 @@
-import type { Bbox } from '../geonames/build';
 import { normalizeBusinessName } from '../cleaning/name';
+import type { Bbox } from '../geonames/build';
+
 export const OFFICIAL_GOOGLE_BASE_URL = 'https://places.googleapis.com';
 /** Separate quota counter for the mock, so development never uses the real allowance. */
 export const MOCK_QUOTA_PROVIDER = 'google_places_mock';
@@ -27,11 +28,13 @@ export type TaskTile = {
   /** Split path inside the area: "" (whole area), "2", "2.0", ... */
   path: string;
   countryCode: string;
-  /** Set for city areas; rural places get their city later (Phase 2). */
+  /** Set for city areas; the real city of each place is decided from its coordinates. */
   cityId: number | null;
   mode: RunMode;
   /** Ignore the cooldown for this job. */
   forceRerun: boolean;
+  /** City or district name, for messages (free-data tasks). */
+  areaName?: string;
 };
 
 export function isOfficialGoogle(baseUrl: string): boolean {
@@ -59,6 +62,11 @@ export function discoveryTaskKey(p: {
     `kw:${p.keyword}`,
     p.language,
   ].join('|');
+}
+
+/** One free-data (Overture) task per search area of a job. */
+export function overtureTaskKey(areaKey: string): string {
+  return ['discovery', 'OVERTURE', areaKey].join('|');
 }
 
 export function childPath(path: string, index: number): string {

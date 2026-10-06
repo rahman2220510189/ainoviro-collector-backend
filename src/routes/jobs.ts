@@ -14,14 +14,22 @@ export const jobRequestSchema = z.object({
   locationIds: z.array(z.number().int().positive()).max(500).optional(),
   categorySlugs: z.array(z.string().trim().min(1)).max(16).default([]),
   greek: z.boolean().default(false),
+  /** Also search with the country's own languages (replaces greek). */
+  localLanguages: z.boolean().optional(),
   includeRural: z.boolean().optional(),
   minCityPopulation: z.number().int().min(0).optional(),
   forceRerun: z.boolean().default(false),
+  /** Default: Google plus Overture when imported. ["OVERTURE"] = free data only. */
+  sources: z
+    .array(z.enum(['GOOGLE_PLACES', 'OVERTURE']))
+    .min(1)
+    .max(2)
+    .optional(),
 });
 
 const idParamsSchema = z.object({ id: z.coerce.number().int().positive() });
 const actionParamsSchema = idParamsSchema.extend({
-  action: z.enum(['start', 'pause', 'resume', 'cancel']),
+  action: z.enum(['start', 'pause', 'resume', 'cancel', 'continue-free']),
 });
 const budgetBodySchema = z.object({ extraBudgetEur: z.number().positive().max(10_000) });
 const listQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
@@ -66,7 +74,7 @@ export function jobRoutes(service: JobService): FastifyPluginAsync {
       return { job: await service.approveBudget(id, extraBudgetEur) };
     });
 
-    // POST /api/v1/jobs/:id/start | pause | resume | cancel
+    // POST /api/v1/jobs/:id/start | pause | resume | cancel | continue-free
     app.post('/:id/:action', async (request) => {
       const { id, action } = actionParamsSchema.parse(request.params);
       return { job: await service.act(id, action) };

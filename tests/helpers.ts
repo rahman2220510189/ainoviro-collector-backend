@@ -15,6 +15,10 @@ import type { LeadDetail, LeadService } from '../src/leads/lead-service';
 import type { SuppressionService } from '../src/services/suppression-service';
 import type { DashboardService, DashboardSummary } from '../src/services/dashboard-service';
 import type { AllSettings, SettingsService } from '../src/services/settings-service';
+import type { DatasetService } from '../src/datasets/dataset-service';
+import type { CountryService, CountryView } from '../src/services/country-service';
+import { refreshStateSchema } from '../src/datasets/refresh';
+import { AppError } from '../src/lib/errors';
 
 /** Config for tests: no real database is contacted. */
 export const testEnv: Env = {
@@ -127,6 +131,10 @@ export const FAKE_PREVIEW: JobPreview = {
     freeRemaining: 1000,
     verdict: 'FITS',
   },
+  sources: ['GOOGLE_PLACES', 'OVERTURE'],
+  overtureAvailable: true,
+  overtureTasks: 1,
+  overtureKnown: { businesses: 120, withEmail: 60 },
 };
 
 export const FAKE_SUMMARY: JobSummary = {
@@ -212,6 +220,7 @@ export const FAKE_SETTINGS: AllSettings = {
     search: view({ minCityPopulation: 5000, includeRural: true, cooldownDays: 30 }),
     crawler: view({ maxPagesPerDomain: 5, delayMs: 1500 }),
     leadRules: view({ chains: { minPlacesPerDomain: 3 } }),
+    datasets: view({ overture: { minConfidence: 0.6, onlyWithContact: true, release: null } }),
   },
   chains: [{ id: 1, name: 'Zara', domain: 'zara.com', addedAt: '2026-10-02T10:00:00.000Z' }],
 };
@@ -365,6 +374,7 @@ export const FAKE_LEAD: LeadDetail = {
   firstSeenAt: new Date('2026-09-20T10:00:00Z'),
   lastSeenAt: new Date('2026-09-20T10:00:00Z'),
   lastCrawledAt: null,
+  shopCheck: { sellsOnline: true, signals: ['woocommerce'], checkedAt: null },
   emails: [],
   subcategories: [],
   sources: [],
@@ -449,6 +459,128 @@ export function createFakeSuppressionService(): FakeSuppressionService {
 }
 
 /** Full AppDeps with harmless fakes; override only what a test needs. */
+export interface FakeDatasetService extends DatasetService {
+  calls: { method: string; args: unknown[] }[];
+  busy: boolean;
+}
+
+/** In-memory DatasetService: one Overture import, refresh requests recorded. */
+export function createFakeDatasetService(): FakeDatasetService {
+  const idle = refreshStateSchema.parse({});
+  const service: FakeDatasetService = {
+    calls: [],
+    busy: false,
+    async overtureStatus() {
+      service.calls.push({ method: 'overtureStatus', args: [] });
+      return {
+        countryCode: 'CY',
+        current: {
+          id: 6,
+          release: '2026-09-23.1',
+          status: 'DONE',
+          startedAt: '2026-10-02T10:00:00.000Z',
+          finishedAt: '2026-10-02T10:03:00.000Z',
+          placesKept: 37254,
+          error: null,
+        },
+        history: [],
+        businesses: 30845,
+        businessesWithEmail: 14476,
+        websitesWaiting: 4022,
+        minConfidence: 0.6,
+        pinnedRelease: null,
+        refresh: idle,
+        databaseBytes: 210_000_000,
+      };
+    },
+    async overtureLatest() {
+      service.calls.push({ method: 'overtureLatest', args: [] });
+      return { release: '2026-10-21.0', newer: true, error: null };
+    },
+    async overtureReport() {
+      service.calls.push({ method: 'overtureReport', args: [] });
+      return {
+        total: 3,
+        mapped: 2,
+        mappedWithEmail: 1,
+        excluded: 1,
+        unmapped: 0,
+        byCategory: [{ category: 'Fitness & Sports', places: 2, withEmail: 1 }],
+        byExclusion: [{ reason: 'park or nature', places: 1, withEmail: 0 }],
+        topUnmapped: [],
+      };
+    },
+    async requestOvertureRefresh(country, adminId) {
+      service.calls.push({ method: 'requestOvertureRefresh', args: [country, adminId] });
+      if (service.busy)
+        throw new AppError(409, 'REFRESH_BUSY', 'An Overture update is already running.');
+      service.busy = true;
+      return { ...idle, state: 'REQUESTED', countryCode: 'CY', requestedBy: adminId };
+    },
+  };
+  return service;
+}
+
+export interface FakeCountryService extends CountryService {
+  calls: { method: string; args: unknown[] }[];
+}
+
+/** Cyprus in use (CSV allowed), Greece and Malta configured but not added yet. */
+export function createFakeCountryService(): FakeCountryService {
+  const countries: CountryView[] = [
+    {
+      code: 'CY',
+      name: 'Cyprus',
+      imported: true,
+      exportEnabled: true,
+      languages: ['en', 'el'],
+      places: 20809,
+      readyLeads: 14476,
+      overtureRelease: '2026-09-23.1',
+    },
+    {
+      code: 'GR',
+      name: 'Greece',
+      imported: false,
+      exportEnabled: false,
+      languages: ['en', 'el'],
+      places: 0,
+      readyLeads: 0,
+      overtureRelease: null,
+    },
+    {
+      code: 'MT',
+      name: 'Malta',
+      imported: false,
+      exportEnabled: false,
+      languages: ['en'],
+      places: 0,
+      readyLeads: 0,
+      overtureRelease: null,
+    },
+  ];
+  const service: FakeCountryService = {
+    calls: [],
+    async list() {
+      service.calls.push({ method: 'list', args: [] });
+      return countries;
+    },
+    async setExport(code, enabled, adminId) {
+      service.calls.push({ method: 'setExport', args: [code, enabled, adminId] });
+      const c = countries.find((x) => x.code === code);
+      if (!c)
+        throw new AppError(404, 'COUNTRY_NOT_CONFIGURED', `Country ${code} is not configured.`);
+      c.exportEnabled = enabled;
+      return countries;
+    },
+    async add(code, adminId) {
+      service.calls.push({ method: 'add', args: [code, adminId] });
+      return { ...refreshStateSchema.parse({}), state: 'REQUESTED', countryCode: code };
+    },
+  };
+  return service;
+}
+
 export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
   return {
     checkDatabase: async () => {},
@@ -461,6 +593,8 @@ export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     suppressionService: createFakeSuppressionService(),
     dashboardService: createFakeDashboardService(),
     settingsService: createFakeSettingsService(),
+    datasetService: createFakeDatasetService(),
+    countryService: createFakeCountryService(),
     ...overrides,
   };
 }

@@ -61,6 +61,10 @@ describe('name similarity', () => {
     expect(nameSimilarity('curly ginger beauty salon', 'curly-ginger beauty salon')).toBe(1);
     expect(nameSimilarity('nail lounge by olga', 'nail lounge olga')).toBeGreaterThan(0.85);
     expect(nameSimilarity('mo nails', 'oh my lash')).toBeLessThan(0.5);
+    // Place words of another country (loaded per country) are ignored the same way.
+    const greek = new Set(['thessaloniki', 'athens']);
+    expect(nameSimilarity('anna beauty thessaloniki', 'anna beauty', greek)).toBe(1);
+    expect(nameSimilarity('anna beauty thessaloniki', 'anna beauty')).toBeLessThan(1);
   });
 });
 

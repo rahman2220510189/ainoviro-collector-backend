@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { normalizeBusinessName } from '../cleaning/name';
 import { analyzeWebsite } from '../cleaning/website';
 import { CRAWLER_SETTINGS_KEY, crawlerSettingsSchema } from '../crawler/settings';
+import { DATASET_SETTINGS_KEY, datasetSettingsSchema } from '../datasets/settings';
 import { runLeadPipeline, withPipelineLock } from '../leads/process';
 import { LEAD_RULES_KEY, leadRulesSchema, loadLeadRules } from '../leads/rules';
 import { AppError } from '../lib/errors';
@@ -29,6 +30,8 @@ export const SETTINGS_SECTIONS = {
   search: { key: SEARCH_SETTINGS_KEY, schema: searchSettingsSchema },
   crawler: { key: CRAWLER_SETTINGS_KEY, schema: crawlerSettingsSchema },
   leadRules: { key: LEAD_RULES_KEY, schema: leadRulesSchema },
+  /** Free datasets; used by the next Overture import. */
+  datasets: { key: DATASET_SETTINGS_KEY, schema: datasetSettingsSchema },
 } as const;
 
 export type SettingsSection = keyof typeof SETTINGS_SECTIONS;
@@ -128,7 +131,14 @@ export function createSettingsService(
   /** Chains and lead rules change who is exportable: recompute now. */
   async function refreshLeads(): Promise<void> {
     const rules = await loadLeadRules(db);
-    await withPipelineLock(db, () => runLeadPipeline(db, country, rules, false));
+    // Every country that has places (the rules apply to all of them).
+    const { rows } = await db.query<{ country_code: string }>(
+      'SELECT DISTINCT country_code FROM places',
+    );
+    const countries = rows.length > 0 ? rows.map((r) => r.country_code) : [country];
+    await withPipelineLock(db, async () => {
+      for (const c of countries) await runLeadPipeline(db, c, rules, false);
+    });
   }
 
   return {

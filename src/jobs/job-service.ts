@@ -7,9 +7,12 @@ import {
   prepareDiscoveryJob,
   saveDiscoveryJob,
   type JobRequest,
+  type JobSource,
   type PreparedJob,
 } from './create-job';
-import { MOCK_QUOTA_PROVIDER, type RunMode } from './keys';
+import { MOCK_QUOTA_PROVIDER, type RunMode, type TaskTile } from './keys';
+import { countOvertureInBoxes } from './overture-counts';
+import { COMPLETE_JOB_SQL } from './task-store';
 import { WORKER_HEARTBEAT_KEY, workerStatusFrom, type WorkerStatus } from './worker-heartbeat';
 
 export const TASK_STATUSES = [
@@ -35,6 +38,10 @@ export interface JobPreview {
   cooldownDays: number;
   forceRerun: boolean;
   cost: CostEstimate;
+  sources: JobSource[];
+  overtureAvailable: boolean;
+  overtureTasks: number;
+  overtureKnown: { businesses: number; withEmail: number };
 }
 
 export interface JobSummary {
@@ -57,9 +64,14 @@ export interface JobEventView {
   message: string;
 }
 
-/** Progress per stage: Google search, then websites crawled for emails. */
+type StageCounts = { total: number; done: number; toDo: number; failed: number; skipped: number };
+
+/** Progress per stage: Google search, free data, then websites crawled for emails. */
 export interface JobStages {
-  search: { total: number; done: number; toDo: number; failed: number; skipped: number };
+  /** Google searches only. */
+  search: StageCounts;
+  /** Free data (Overture), one task per area; null when the job does not use it. */
+  free: (StageCounts & { businesses: number; withEmail: number }) | null;
   /** Businesses first seen while this job ran (new leads, not ones found before). */
   places: {
     newPlaces: number;
@@ -81,6 +93,9 @@ export interface JobOptionsView {
 }
 
 export interface JobDetail extends JobSummary {
+  sources: JobSource[];
+  /** Google searches waiting for the quota after "Continue with free sources". */
+  googleDeferred: number;
   /** Same as stages.places.newPlaces (kept for the CLI). */
   newPlacesSinceStart: number;
   estimate: unknown;
@@ -111,7 +126,7 @@ export interface QuotaStatus {
   worker: WorkerStatus;
 }
 
-export type JobAction = 'start' | 'pause' | 'resume' | 'cancel';
+export type JobAction = 'start' | 'pause' | 'resume' | 'cancel' | 'continue-free';
 
 /** Everything the API and CLI can do with jobs (an interface so tests can fake it). */
 export interface JobService {
@@ -143,6 +158,10 @@ function toPreview(job: PreparedJob): JobPreview {
     cooldownDays: job.cooldownDays,
     forceRerun: job.forceRerun,
     cost: job.cost,
+    sources: job.sources,
+    overtureAvailable: job.overtureAvailable,
+    overtureTasks: job.overtureTasks,
+    overtureKnown: job.overtureKnown,
   };
 }
 
@@ -151,6 +170,7 @@ const notFound = (id: number): AppError =>
 
 const EMPTY_STAGES: JobStages = {
   search: { total: 0, done: 0, toDo: 0, failed: 0, skipped: 0 },
+  free: null,
   places: { newPlaces: 0, withWebsite: 0, websitesChecked: 0, waitingForCrawl: 0, withEmail: 0 },
 };
 
@@ -189,7 +209,7 @@ export function createPrismaJobService(
       stats.set(id, { tasks: Object.fromEntries(TASK_STATUSES.map((s) => [s, 0])), results: 0 });
     if (ids.length === 0) return stats;
     const grouped = await prisma.jobTask.groupBy({
-      by: ['jobId', 'status'],
+      by: ['jobId', 'status', 'source'],
       where: { jobId: { in: ids } },
       _count: { _all: true },
       _sum: { resultsCount: true },
@@ -197,8 +217,9 @@ export function createPrismaJobService(
     for (const g of grouped) {
       const entry = stats.get(g.jobId);
       if (!entry) continue;
-      entry.tasks[g.status] = g._count._all;
-      entry.results += g._sum.resultsCount ?? 0;
+      entry.tasks[g.status] = (entry.tasks[g.status] ?? 0) + g._count._all;
+      // "Results returned" means Google results; free data is counted per business.
+      if (g.source === 'GOOGLE_PLACES') entry.results += g._sum.resultsCount ?? 0;
     }
     return stats;
   }
@@ -253,11 +274,12 @@ export function createPrismaJobService(
           lastError: null,
         },
       }),
-      // Deferred (quota) and failed tasks get another chance.
+      // Deferred (quota) and failed tasks get another chance; Google runs again.
       prisma.jobTask.updateMany({
         where: { jobId: id, status: { in: ['DEFERRED', 'FAILED'] } },
         data: { status: 'PENDING' },
       }),
+      prisma.$executeRaw`UPDATE jobs SET options = options - 'googleDeferred' WHERE id = ${id}`,
       prisma.jobEvent.create({
         data: { jobId: id, type: eventType, message: `Job set to RUNNING (${eventType})` },
       }),
@@ -298,6 +320,27 @@ export function createPrismaJobService(
     };
   }
 
+  /** Distinct Overture businesses over all free-data areas of the job (areas can overlap). */
+  async function freeTotals(
+    jobId: number,
+    options: unknown,
+  ): Promise<{ businesses: number; withEmail: number }> {
+    const [tasks, subs] = await Promise.all([
+      prisma.jobTask.findMany({
+        where: { jobId, source: 'OVERTURE', status: 'DONE' },
+        select: { tile: true },
+      }),
+      prisma.jobSubcategory.findMany({ where: { jobId }, select: { subcategoryId: true } }),
+    ]);
+    if (tasks.length === 0) return { businesses: 0, withEmail: 0 };
+    const view = optionsView(options);
+    return countOvertureInBoxes(prisma, {
+      boxes: tasks.map((t) => t.tile as TaskTile),
+      subcategoryIds: subs.map((s) => s.subcategoryId),
+      allCategories: view.categorySlugs.length === 0,
+    });
+  }
+
   return {
     async preview(request) {
       return toPreview(await prepare(request));
@@ -326,31 +369,51 @@ export function createPrismaJobService(
           ...summarySelect,
           estimate: true,
           options: true,
+          sourcePlan: true,
           extraBudgetEur: true,
           paidRequestsUsed: true,
         },
       });
       if (!job) return null;
-      const [stats, events, places] = await Promise.all([
+      const [stats, events, places, bySource, free] = await Promise.all([
         taskStats([id]),
         prisma.jobEvent.findMany({ where: { jobId: id }, orderBy: { id: 'desc' }, take: 30 }),
         placeStats(job.startedAt, job.finishedAt),
+        prisma.jobTask.groupBy({
+          by: ['source', 'status'],
+          where: { jobId: id },
+          _count: { _all: true },
+        }),
+        freeTotals(id, job.options),
       ]);
       const summary = toSummary(job, stats.get(id));
-      const t = summary.tasks;
-      const n = (status: string): number => t[status] ?? 0;
-      const stages: JobStages = {
-        search: {
-          total: Object.values(t).reduce((a, b) => a + b, 0),
+      const counts = (source: JobSource): StageCounts => {
+        const n = (status: string): number =>
+          bySource.find((g) => g.source === source && g.status === status)?._count._all ?? 0;
+        return {
+          total: bySource.filter((g) => g.source === source).reduce((a, g) => a + g._count._all, 0),
           done: n('DONE'),
           toDo: n('PENDING') + n('RUNNING') + n('DEFERRED'),
           failed: n('FAILED'),
           skipped: n('SKIPPED'),
-        },
+        };
+      };
+      const overture = counts('OVERTURE');
+      const stages: JobStages = {
+        search: counts('GOOGLE_PLACES'),
+        free: overture.total > 0 ? { ...overture, ...free } : null,
         places,
       };
+      const googleDeferred = bySource
+        .filter((g) => g.source === 'GOOGLE_PLACES' && g.status === 'DEFERRED')
+        .reduce((a, g) => a + g._count._all, 0);
       return {
         ...summary,
+        sources: job.sourcePlan as JobSource[],
+        googleDeferred:
+          (job.options as Record<string, unknown> | null)?.googleDeferred === true
+            ? googleDeferred
+            : 0,
         newPlacesSinceStart: places.newPlaces,
         estimate: job.estimate,
         options: optionsView(job.options),
@@ -443,6 +506,13 @@ export function createPrismaJobService(
         select: { status: true, startedAt: true },
       });
       if (!job) throw notFound(id);
+      // A finished job whose Google searches were put aside can run them later.
+      const deferredGoogle =
+        job.status === 'COMPLETED'
+          ? await prisma.jobTask.count({
+              where: { jobId: id, source: 'GOOGLE_PLACES', status: 'DEFERRED' },
+            })
+          : 0;
       const need = (allowed: string[]): void => {
         if (!allowed.includes(job.status)) {
           throw new AppError(
@@ -459,8 +529,54 @@ export function createPrismaJobService(
           await setRunning(id, job.startedAt, 'job_started');
           break;
         case 'resume':
-          need(['PAUSED_USER', 'PAUSED_QUOTA', 'FAILED']);
+          need([
+            'PAUSED_USER',
+            'PAUSED_QUOTA',
+            'FAILED',
+            ...(deferredGoogle > 0 ? ['COMPLETED'] : []),
+          ]);
           await setRunning(id, job.startedAt, 'job_resumed');
+          break;
+        case 'continue-free':
+          // Spec §8 quota modal, option (a): go on with the free sources only. Google
+          // searches wait (DEFERRED) and can be run later with Resume.
+          need(['RUNNING', 'PAUSED_USER', 'PAUSED_QUOTA', 'FAILED']);
+          await prisma.$transaction([
+            prisma.jobTask.updateMany({
+              where: {
+                jobId: id,
+                source: 'GOOGLE_PLACES',
+                status: { in: ['PENDING', 'DEFERRED', 'FAILED'] },
+              },
+              data: { status: 'DEFERRED' },
+            }),
+            prisma.jobTask.updateMany({
+              where: {
+                jobId: id,
+                source: { not: 'GOOGLE_PLACES' },
+                status: { in: ['DEFERRED', 'FAILED'] },
+              },
+              data: { status: 'PENDING' },
+            }),
+            prisma.$executeRaw`UPDATE jobs
+              SET status = 'RUNNING', started_at = coalesce(started_at, now()), finished_at = NULL,
+                  last_error = NULL, updated_at = now(),
+                  options = options || '{"googleDeferred": true}'::jsonb
+              WHERE id = ${id}`,
+            prisma.jobEvent.create({
+              data: {
+                jobId: id,
+                type: 'job_continue_free',
+                message: 'Continuing with free sources only; Google searches wait for later',
+              },
+            }),
+          ]);
+          // Nothing free left to do: the job is finished now.
+          if ((await prisma.$executeRawUnsafe(COMPLETE_JOB_SQL, id)) > 0) {
+            await prisma.jobEvent.create({
+              data: { jobId: id, type: 'job_completed', message: 'All tasks finished' },
+            });
+          }
           break;
         case 'pause':
           need(['RUNNING']);

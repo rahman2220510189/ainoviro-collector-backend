@@ -1,0 +1,498 @@
+{
+  "version": 1,
+  "about": "Overture places taxonomy (schema v2) -> our subcategories. A rule matches the start of a place's taxonomy path ('a > b > c'); the longest matching rule wins. 'exclude' = not a business that could become a vendor. 'basic:<name>' rules are only used for places without a taxonomy path.",
+  "rules": [
+    {
+      "match": "food_and_drink",
+      "to": "food-beverage/dining-takeaway"
+    },
+    {
+      "match": "food_and_drink > casual_eatery > bakery",
+      "to": "food-natural-products/gourmet-specialty"
+    },
+    {
+      "match": "food_and_drink > casual_eatery > candy_store",
+      "to": "food-natural-products/gourmet-specialty"
+    },
+    {
+      "match": "food_and_drink > casual_eatery > delicatessen",
+      "to": "food-natural-products/gourmet-specialty"
+    },
+    {
+      "match": "shopping",
+      "to": "retail-electronics/products-goods"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store",
+      "to": "fashion-accessories/womens-clothing"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > clothing_store > childrens_clothing_store",
+      "to": "fashion-accessories/kids-clothing"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > clothing_store > mens_clothing_store",
+      "to": "fashion-accessories/mens-clothing"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > shoe_store",
+      "to": "fashion-accessories/leather-goods"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > leather_goods_store",
+      "to": "fashion-accessories/leather-goods"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > luggage_store",
+      "to": "fashion-accessories/leather-goods"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > jewelry_store",
+      "to": "retail-electronics/accessories-parts"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > fashion_accessories_store",
+      "to": "retail-electronics/accessories-parts"
+    },
+    {
+      "match": "shopping > fashion_and_apparel_store > eyewear_store",
+      "to": "health-wellness/products-devices"
+    },
+    {
+      "match": "shopping > food_and_beverage_store",
+      "to": "food-beverage/specialty-retail"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > liquor_store",
+      "to": "food-natural-products/beverages"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > beer_wine_spirits_store",
+      "to": "food-natural-products/beverages"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > grocery_store > organic_grocery_store",
+      "to": "food-natural-products/organic-natural-foods"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > health_food_store",
+      "to": "food-natural-products/organic-natural-foods"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > specialty_foods_store",
+      "to": "food-natural-products/gourmet-specialty"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > cheese_shop",
+      "to": "food-natural-products/gourmet-specialty"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > honey_farm_shop",
+      "to": "food-natural-products/honey-bee-products"
+    },
+    {
+      "match": "shopping > food_and_beverage_store > vitamin_and_supplement_store",
+      "to": "health-wellness/products-devices"
+    },
+    {
+      "match": "shopping > specialty_store > pharmacy_and_drug_store",
+      "to": "health-wellness/products-devices"
+    },
+    {
+      "match": "shopping > specialty_store > personal_care_and_beauty_store",
+      "to": "personal-care-beauty/products-supplies"
+    },
+    {
+      "match": "shopping > specialty_store > animal_and_pet_store",
+      "to": "home-lifestyle-pets/pet-products-subscriptions"
+    },
+    {
+      "match": "shopping > specialty_store > hardware_home_and_garden_store",
+      "to": "home-lifestyle-pets/lifestyle-products"
+    },
+    {
+      "match": "shopping > specialty_store > flowers_and_gifts_store",
+      "to": "home-lifestyle-pets/lifestyle-products"
+    },
+    {
+      "match": "shopping > specialty_store > sporting_goods_store",
+      "to": "fitness-sports/equipment-products"
+    },
+    {
+      "match": "shopping > specialty_store > vehicle_parts_store",
+      "to": "automotive-mobility/parts-accessories"
+    },
+    {
+      "match": "shopping > specialty_store > arts_crafts_and_hobby_store",
+      "to": "education-coaching/materials-kits"
+    },
+    {
+      "match": "shopping > vehicle_dealer",
+      "to": "automotive-mobility/services-support"
+    },
+    {
+      "match": "services_and_business",
+      "to": "professional-business-services/support-operations"
+    },
+    {
+      "match": "services_and_business > financial_service",
+      "to": "legal-financial-insurance/consultations-advisory"
+    },
+    {
+      "match": "services_and_business > financial_service > insurance_agency",
+      "to": "legal-financial-insurance/claims-support"
+    },
+    {
+      "match": "services_and_business > financial_service > atm",
+      "exclude": "machine, not a business"
+    },
+    {
+      "match": "services_and_business > legal_service",
+      "to": "legal-financial-insurance/consultations-advisory"
+    },
+    {
+      "match": "services_and_business > real_estate_service",
+      "to": "real-estate-property/sales-rentals"
+    },
+    {
+      "match": "services_and_business > housing_or_property_service",
+      "to": "real-estate-property/management-advisory"
+    },
+    {
+      "match": "services_and_business > storage_facility",
+      "to": "real-estate-property/storage-facilities"
+    },
+    {
+      "match": "services_and_business > building_or_construction_service",
+      "to": "real-estate-property/services-maintenance"
+    },
+    {
+      "match": "services_and_business > professional_service",
+      "to": "professional-business-services/consulting-advisory"
+    },
+    {
+      "match": "services_and_business > design_service",
+      "to": "professional-business-services/consulting-advisory"
+    },
+    {
+      "match": "services_and_business > home_service",
+      "to": "home-lifestyle-pets/home-services"
+    },
+    {
+      "match": "services_and_business > laundry_service",
+      "to": "home-lifestyle-pets/home-services"
+    },
+    {
+      "match": "services_and_business > family_service",
+      "to": "home-lifestyle-pets/home-services"
+    },
+    {
+      "match": "services_and_business > family_service > child_care_and_day_care",
+      "to": "education-coaching/memberships-programs"
+    },
+    {
+      "match": "services_and_business > event_or_party_service",
+      "to": "events-experiences/planning-production"
+    },
+    {
+      "match": "services_and_business > event_or_party_service > caterer",
+      "to": "food-beverage/catering-events"
+    },
+    {
+      "match": "services_and_business > media_service",
+      "to": "events-experiences/photography-media"
+    },
+    {
+      "match": "services_and_business > technical_service",
+      "to": "retail-electronics/services-repairs"
+    },
+    {
+      "match": "services_and_business > rental_service",
+      "to": "automotive-mobility/rentals-leasing"
+    },
+    {
+      "match": "services_and_business > agricultural_service",
+      "to": "specialised-industries/services-solutions"
+    },
+    {
+      "match": "services_and_business > environmental_or_ecological_service",
+      "to": "specialised-industries/services-solutions"
+    },
+    {
+      "match": "services_and_business > security_service",
+      "to": "specialised-industries/services-solutions"
+    },
+    {
+      "match": "services_and_business > industrial_facility_or_service",
+      "to": "specialised-industries/services-solutions"
+    },
+    {
+      "match": "services_and_business > telecommunications_service",
+      "to": "specialised-industries/services-solutions"
+    },
+    {
+      "match": "lifestyle_services",
+      "to": "personal-care-beauty/treatments-services"
+    },
+    {
+      "match": "lifestyle_services > wellness_service",
+      "to": "health-wellness/treatments-sessions"
+    },
+    {
+      "match": "lifestyle_services > wellness_service > nutrition_service",
+      "to": "health-wellness/consultations-therapy"
+    },
+    {
+      "match": "lifestyle_services > animal_or_pet_service",
+      "to": "home-lifestyle-pets/pet-services"
+    },
+    {
+      "match": "lifestyle_services > food_service",
+      "to": "food-beverage/catering-events"
+    },
+    {
+      "match": "health_care",
+      "to": "health-wellness/consultations-therapy"
+    },
+    {
+      "match": "health_care > hospital",
+      "to": "health-wellness/treatments-sessions"
+    },
+    {
+      "match": "health_care > specialized_medical_facility",
+      "to": "health-wellness/treatments-sessions"
+    },
+    {
+      "match": "health_care > medical_service",
+      "to": "health-wellness/treatments-sessions"
+    },
+    {
+      "match": "health_care > emergency_or_urgent_care_facility",
+      "to": "health-wellness/treatments-sessions"
+    },
+    {
+      "match": "sports_and_recreation",
+      "to": "fitness-sports/memberships-passes"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > dance_studio",
+      "to": "fitness-sports/classes-sessions"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > fitness_studio",
+      "to": "fitness-sports/classes-sessions"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > boxing_class",
+      "to": "fitness-sports/classes-sessions"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > fitness_trainer",
+      "to": "fitness-sports/training-coaching"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > diving_center",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > diving_instruction",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > water_sport",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > adventure_sport",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > horse_riding",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > horseback_riding_service",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > sport_field",
+      "exclude": "public sports ground"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > sport_court",
+      "exclude": "public sports ground"
+    },
+    {
+      "match": "sports_and_recreation > sport_or_fitness_facility > skate_park",
+      "exclude": "public sports ground"
+    },
+    {
+      "match": "sports_and_recreation > recreational_equipment_rental",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "sports_and_recreation > park",
+      "exclude": "park or nature"
+    },
+    {
+      "match": "sports_and_recreation > recreational_trail_or_path",
+      "exclude": "park or nature"
+    },
+    {
+      "match": "education",
+      "to": "education-coaching/lessons-tutoring"
+    },
+    {
+      "match": "education > place_of_learning > specialty_school",
+      "to": "education-coaching/courses-workshops"
+    },
+    {
+      "match": "education > place_of_learning > school",
+      "exclude": "school (state or general education)"
+    },
+    {
+      "match": "education > place_of_learning > school > private_school",
+      "to": "education-coaching/memberships-programs"
+    },
+    {
+      "match": "education > place_of_learning > school > preschool",
+      "to": "education-coaching/memberships-programs"
+    },
+    {
+      "match": "education > place_of_learning > college_university",
+      "exclude": "university or college"
+    },
+    {
+      "match": "education > library",
+      "exclude": "public library or research"
+    },
+    {
+      "match": "education > research_institute",
+      "exclude": "public library or research"
+    },
+    {
+      "match": "lodging",
+      "to": "travel-hospitality/accommodation"
+    },
+    {
+      "match": "travel_and_transportation",
+      "to": "travel-hospitality/transport-tours"
+    },
+    {
+      "match": "travel_and_transportation > vehicle_service",
+      "to": "automotive-mobility/maintenance-repairs"
+    },
+    {
+      "match": "travel_and_transportation > fueling_station",
+      "to": "automotive-mobility/services-support"
+    },
+    {
+      "match": "travel_and_transportation > air_transport_facility_or_service",
+      "exclude": "airport or transport hub"
+    },
+    {
+      "match": "travel_and_transportation > parking",
+      "exclude": "parking"
+    },
+    {
+      "match": "travel_and_transportation > ground_transport_facility_or_service > public_transit_facility_or_service",
+      "exclude": "airport or transport hub"
+    },
+    {
+      "match": "travel_and_transportation > ground_transport_facility_or_service > rail_facility_or_service",
+      "exclude": "airport or transport hub"
+    },
+    {
+      "match": "arts_and_entertainment",
+      "to": "events-experiences/bookings-reservations"
+    },
+    {
+      "match": "arts_and_entertainment > arts_and_crafts_space",
+      "to": "events-experiences/passes-merchandise"
+    },
+    {
+      "match": "arts_and_entertainment > arts_and_crafts_space > sculpture_statue",
+      "exclude": "monument or public art"
+    },
+    {
+      "match": "arts_and_entertainment > arts_and_crafts_space > street_art",
+      "exclude": "monument or public art"
+    },
+    {
+      "match": "arts_and_entertainment > amusement_attraction",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "arts_and_entertainment > animal_attraction",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "arts_and_entertainment > science_attraction",
+      "to": "travel-hospitality/experiences-activities"
+    },
+    {
+      "match": "arts_and_entertainment > museum",
+      "exclude": "museum or stadium"
+    },
+    {
+      "match": "arts_and_entertainment > stadium_arena",
+      "exclude": "museum or stadium"
+    },
+    {
+      "match": "community_and_government",
+      "exclude": "government or community organisation"
+    },
+    {
+      "match": "cultural_and_historic",
+      "exclude": "historic or religious site"
+    },
+    {
+      "match": "geographic_entities",
+      "exclude": "park or nature"
+    },
+    {
+      "match": "basic:fueling_station",
+      "to": "automotive-mobility/services-support"
+    },
+    {
+      "match": "basic:nightlife_venue",
+      "to": "events-experiences/bookings-reservations"
+    },
+    {
+      "match": "basic:sport_league",
+      "to": "fitness-sports/memberships-passes"
+    },
+    {
+      "match": "basic:fast_food_restaurant",
+      "to": "food-beverage/dining-takeaway"
+    },
+    {
+      "match": "basic:coffee_shop",
+      "to": "food-beverage/dining-takeaway"
+    },
+    {
+      "match": "basic:casual_eatery",
+      "to": "food-beverage/dining-takeaway"
+    },
+    {
+      "match": "basic:restaurant",
+      "to": "food-beverage/dining-takeaway"
+    },
+    {
+      "match": "basic:government_department",
+      "exclude": "government or community organisation"
+    },
+    {
+      "match": "basic:religious_organization",
+      "exclude": "historic or religious site"
+    },
+    {
+      "match": "basic:behavioral_or_mental_health_clinic",
+      "to": "health-wellness/consultations-therapy"
+    },
+    {
+      "match": "basic:science_attraction",
+      "to": "travel-hospitality/experiences-activities"
+    }
+  ]
+}

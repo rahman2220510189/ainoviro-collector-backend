@@ -194,4 +194,35 @@ describe('jobs API', () => {
     });
     expect(zero.statusCode).toBe(400);
   });
+
+  it('continues with free sources and passes the chosen sources through', async () => {
+    const { server, cookie } = await startApp();
+    const free = await server.inject({
+      method: 'POST',
+      url: '/api/v1/jobs/7/continue-free',
+      headers: { ...CSRF, cookie },
+    });
+    expect(free.statusCode).toBe(200);
+    expect(jobs.calls[0]).toEqual({ method: 'act', args: [7, 'continue-free'] });
+
+    const preview = await server.inject({
+      method: 'POST',
+      url: '/api/v1/jobs/preview',
+      headers: { ...CSRF, cookie },
+      payload: { countryCode: 'cy', sources: ['OVERTURE'] },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().preview.overtureKnown).toEqual({ businesses: 120, withEmail: 60 });
+    expect(jobs.calls[1]?.args[0]).toMatchObject({ sources: ['OVERTURE'] });
+
+    for (const sources of [[], ['FOURSQUARE']]) {
+      const bad = await server.inject({
+        method: 'POST',
+        url: '/api/v1/jobs/preview',
+        headers: { ...CSRF, cookie },
+        payload: { countryCode: 'CY', sources },
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+  });
 });

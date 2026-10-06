@@ -13,7 +13,7 @@
 import { parseArgs } from 'node:util';
 import { Pool } from 'pg';
 import { EnvValidationError, loadEnv } from '../config/env';
-import { runLeadPipeline } from '../leads/process';
+import { runLeadPipeline, withPipelineLock } from '../leads/process';
 import { loadLeadRules } from '../leads/rules';
 
 const REASON_TEXT: Record<string, string> = {
@@ -40,11 +40,18 @@ async function main(): Promise<void> {
   });
   const countryCode = (values.country ?? 'CY').toUpperCase();
   const dryRun = values['dry-run'] ?? false;
-  const db = new Pool({ connectionString: loadEnv().DATABASE_URL, max: 2 });
+  // Room for the lock connection plus the duplicate merges that run side by side.
+  const db = new Pool({ connectionString: loadEnv().DATABASE_URL, max: 10 });
 
   try {
     const rules = await loadLeadRules(db);
-    const s = await runLeadPipeline(db, countryCode, rules, dryRun);
+    const say = (line: string): void => console.log(line);
+    const s = await withPipelineLock(
+      db,
+      () => runLeadPipeline(db, countryCode, rules, dryRun, say),
+      () =>
+        say('  waiting: the worker is preparing the leads right now; this continues after it...'),
+    );
 
     console.log(`\nPlaces in ${countryCode}${dryRun ? '  (dry run: nothing saved)' : ''}`);
     console.log(
@@ -56,7 +63,7 @@ async function main(): Promise<void> {
       console.log(`   [${g.reasons.join('+')}] ${names}`);
     }
     if (s.dedupe.groups.length > 15) console.log(`   ... ${s.dedupe.groups.length - 15} more`);
-        if (s.dedupe.possible.length > 0) {
+    if (s.dedupe.possible.length > 0) {
       console.log(
         `   Same phone but unrelated names (NOT merged, check by hand): ${s.dedupe.possible.length}`,
       );
@@ -65,6 +72,7 @@ async function main(): Promise<void> {
         console.log(`   [?] ${names}`);
       }
     }
+
     console.log(`\n2. Primary category set for ${s.primarySubcategories} place(s)`);
 
     console.log(

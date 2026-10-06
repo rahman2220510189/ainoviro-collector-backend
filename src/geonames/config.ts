@@ -12,6 +12,8 @@ const cityRadiusSchema = z.object({
 });
 
 const countryConfigSchema = z.object({
+  /** English name, shown before the country is imported (e.g. on "Add a country"). */
+  name: z.string().min(2),
   /** Use GeoNames admin2 areas as an extra tree level (country -> admin1 -> admin2 -> city). */
   useAdmin2: z.boolean(),
   /** Unicode script of local names, e.g. "Greek". Used to pick name_local. */
@@ -23,10 +25,21 @@ const countryConfigSchema = z.object({
 
 const countriesFileSchema = z.object({
   version: z.literal(1),
-  countries: z.record(z.string().regex(/^[A-Z]{2}$/, 'country key must be 2 uppercase letters'), countryConfigSchema),
+  countries: z.record(
+    z.string().regex(/^[A-Z]{2}$/, 'country key must be 2 uppercase letters'),
+    countryConfigSchema,
+  ),
 });
 
 export type CountryConfig = z.infer<typeof countryConfigSchema>;
+
+/** Every configured country (code -> config), in file order. */
+export function loadAllCountryConfigs(
+  filePath: string = COUNTRIES_CONFIG_PATH,
+): Record<string, CountryConfig> {
+  const text = readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+  return countriesFileSchema.parse(JSON.parse(text) as unknown).countries;
+}
 export type CityRadius = z.infer<typeof cityRadiusSchema>;
 
 /** Works from both src/geonames (tsx) and dist/geonames (compiled). */

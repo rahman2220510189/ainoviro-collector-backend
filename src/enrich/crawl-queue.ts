@@ -4,6 +4,7 @@ import type { CrawlerSettings } from '../crawler/settings';
 import { evaluateSiteEmails, type EvaluationResult } from './evaluate';
 import type { MxChecker } from './mx';
 import { saveCrawlResult, type SaveCrawlResult } from './save';
+import { recordShopCheck } from './shop-check';
 
 /** A RUNNING claim older than this belongs to a crashed crawler and may be taken again. */
 const STALE_CLAIM_MINUTES = 15;
@@ -12,10 +13,10 @@ const STALE_CLAIM_MINUTES = 15;
  * Websites waiting for a crawl: own website known, no email yet, not rejected,
  * and the domain was never crawled or its retry time has come. Mock data
  * ("*.example.cy") is never crawled.
- * $1 (optional timestamp): also take websites that were crawled before that moment
- * WITHOUT finding an email, ignoring the 90-day wait ("--recheck-no-email", used to
- * measure improvements of the email finder). The cut-off stops a run from picking a
- * website it has just crawled.
+ * $1 (optional timestamp): also take websites that were crawled (or failed) before that
+ * moment WITHOUT finding an email, ignoring the waiting time ("--recheck-no-email", used
+ * after improving the email finder). robots.txt refusals are never rechecked. The
+ * cut-off stops a run from picking a website it has just crawled.
  */
 const DUE_DOMAINS_SQL = `
   SELECT p.website_domain AS domain, min(p.id) AS first_place_id
@@ -151,6 +152,8 @@ export async function processDomain(
       emails: evaluation.emails,
       retryWithoutEmailDays: ctx.settings.retryWithoutEmailDays,
     });
+    // The pages are here anyway: does the business sell online? (step 6.3)
+    await recordShopCheck(ctx.db, claimed.domain, crawl);
     return { claimed, crawl, evaluation, saved };
   } catch (err) {
     // Release the claim so the domain is tried again tomorrow instead of staying RUNNING.

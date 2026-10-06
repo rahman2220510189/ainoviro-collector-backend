@@ -49,6 +49,8 @@ export const leadRulesSchema = z.object({
       goodRatingMinCount: z.number().int().min(0).default(5),
       open: z.number().int().default(10),
       chain: z.number().int().default(-50),
+      /** The business already sells online (shop, cart or marketplace shop; step 6.3). */
+      sellsOnline: z.number().int().default(20),
     })
     .default({
       ownDomainEmail: 30,
@@ -59,6 +61,7 @@ export const leadRulesSchema = z.object({
       goodRatingMinCount: 5,
       open: 10,
       chain: -50,
+      sellsOnline: 20,
     }),
 });
 

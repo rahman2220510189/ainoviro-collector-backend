@@ -260,17 +260,22 @@ model SubcategoryKeyword {
   @@map("subcategory_keywords")
 }
 
-/// Maps a dataset category (Overture / Foursquare) to one of our subcategories.
+/// Maps a dataset category (Overture / Foursquare) to one of our subcategories, or excludes it.
+/// For Overture, source_category is the START of a taxonomy path ("food_and_drink > restaurant");
+/// the longest matching rule wins. "basic:<name>" rules serve places without a taxonomy path.
+/// Exactly one of subcategory_id / excluded_reason is set.
 model SourceCategoryMap {
-  id             Int         @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   source         SourceName
-  sourceCategory String      @map("source_category")
-  subcategoryId  Int         @map("subcategory_id")
-  subcategory    Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
-  active         Boolean     @default(true)
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  sourceCategory String       @map("source_category")
+  subcategoryId  Int?         @map("subcategory_id")
+  subcategory    Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  /// Set when places of this category are not businesses (park, school, government ...).
+  excludedReason String?      @map("excluded_reason")
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  @@unique([source, sourceCategory, subcategoryId])
+  @@unique([source, sourceCategory])
   @@map("source_category_map")
 }
 
@@ -500,6 +505,23 @@ model DomainCrawl {
   @@map("domain_crawls")
 }
 
+/// Does the business already sell online? (step 6.3) Read from its own website: a shop
+/// system, a cart, or a link to its shop on a marketplace. One row per website domain.
+model DomainShopCheck {
+  domain      String    @id
+  /// RUNNING | DONE | FAILED | ROBOTS_BLOCKED
+  status      String
+  sellsOnline Boolean?  @map("sells_online")
+  /// e.g. ["woocommerce", "cart", "skroutz"]
+  signals     String[]  @default([])
+  lastError   String?   @map("last_error")
+  checkedAt   DateTime? @map("checked_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@index([sellsOnline])
+  @@map("domain_shop_checks")
+}
+
 // =============================================================================
 // Job engine
 // =============================================================================
@@ -691,4 +713,88 @@ model ApiUsage {
 
   @@id([provider, sku, period])
   @@map("api_usage")
+}
+
+// =============================================================================
+// Free datasets (Phase 4): staging copies of one country, refreshed by the import commands
+// =============================================================================
+
+/// Overture Maps places of one country (spec §6.2). Replaced on every import:
+/// rows that vanished from the new release are deleted.
+model StgOverturePlace {
+  id                String   @id
+  countryCode       String   @map("country_code") @db.Char(2)
+  release           String
+  name              String
+  lat               Float
+  lng               Float
+  basicCategory     String?  @map("basic_category")
+  taxonomyPrimary   String?  @map("taxonomy_primary")
+  taxonomyHierarchy String[] @default([]) @map("taxonomy_hierarchy")
+  taxonomyAlternates String[] @default([]) @map("taxonomy_alternates")
+  confidence        Float?
+  operatingStatus   String?  @map("operating_status")
+  websites          String[] @default([])
+  phones            String[] @default([])
+  emails            String[] @default([])
+  socials           String[] @default([])
+  brandName         String?  @map("brand_name")
+  address           String?
+  locality          String?
+  postcode          String?
+  region            String?
+  /// Upstream datasets this record came from (attribution), e.g. ["meta", "Microsoft"].
+  datasets          String[] @default([])
+  importedAt        DateTime @default(now()) @map("imported_at") @db.Timestamptz(3)
+
+  @@index([countryCode])
+  @@index([taxonomyPrimary])
+  @@map("stg_overture_places")
+}
+
+/// Foursquare OS Places of one country (Hugging Face release), before the merge (Phase 4.6).
+model StgFsqPlace {
+  id             String    @id
+  countryCode    String    @map("country_code") @db.Char(2)
+  release        String
+  name           String
+  lat            Float
+  lng            Float
+  /// Foursquare category ids and labels ("Dining and Drinking > Cafe, Coffee, and Tea House").
+  categoryIds    String[]  @default([]) @map("category_ids")
+  categoryLabels String[]  @default([]) @map("category_labels")
+  website        String?
+  tel            String?
+  email          String?
+  address        String?
+  locality       String?
+  region         String?
+  postcode       String?
+  facebookId     String?   @map("facebook_id")
+  instagram      String?
+  twitter        String?
+  dateCreated    String?   @map("date_created")
+  /// Last time any reference of the place was refreshed (crawl, users, validation).
+  dateRefreshed  String?   @map("date_refreshed")
+  importedAt     DateTime  @default(now()) @map("imported_at") @db.Timestamptz(3)
+
+  @@index([countryCode])
+  @@map("stg_fsq_places")
+}
+
+/// One row per dataset import run (for the Data sources page and the report).
+model DatasetImport {
+  id          Int       @id @default(autoincrement())
+  source      SourceName
+  countryCode String    @map("country_code") @db.Char(2)
+  release     String
+  status      String
+  /// Counts: read, kept, dropped (by reason), with website / email, removed.
+  stats       Json      @default("{}")
+  error       String?
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  @@index([source, countryCode])
+  @@map("dataset_imports")
 }

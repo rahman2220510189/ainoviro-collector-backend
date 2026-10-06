@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { findDuplicates, type DuplicateGroup, type PossibleDuplicate } from './dedupe';
+import { normalizeBusinessName } from '../cleaning/name';
 import { mergePlaceGroup } from './merge';
 import {
   detectChains,
@@ -74,12 +75,45 @@ export interface DedupeSummary {
   names: Map<number, string>;
 }
 
+/** Groups merged at the same time. Groups never share a place, so they cannot collide. */
+const MERGE_CONCURRENCY = 6;
+
+/** Progress lines for long runs (e.g. the first run after a big import). */
+export type PipelineProgress = (line: string) => void;
+
+/**
+ * Words of the country's place names ("athens", "rhodes", local spellings too), so
+ * "Anna Beauty Athens" and "Anna Beauty" count as one name in any country. Towns of at
+ * least 1,000 people and the regions are enough; village names are too often real words.
+ */
+export async function countryPlaceWords(db: Pool, countryCode: string): Promise<Set<string>> {
+  const { rows } = await db.query<{ name: string; name_local: string | null }>(
+    `SELECT name, name_local FROM locations
+     WHERE country_code = $1 AND active
+       AND (type IN ('COUNTRY', 'REGION') OR coalesce(population, 0) >= 1000)`,
+    [countryCode],
+  );
+  const words = new Set<string>();
+  for (const r of rows) {
+    for (const n of [r.name, r.name_local]) {
+      if (!n) continue;
+      for (const w of normalizeBusinessName(n)
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .split(' ')) {
+        if (w.length >= 3) words.add(w);
+      }
+    }
+  }
+  return words;
+}
+
 /** Finds duplicate places and (unless dryRun) merges every group into one place. */
 export async function dedupePlaces(
   db: Pool,
   countryCode: string,
   rules: LeadRules['dedupe'],
   dryRun: boolean,
+  onProgress?: PipelineProgress,
 ): Promise<DedupeSummary> {
   const { rows } = await db.query<{
     id: number;
@@ -95,6 +129,7 @@ export async function dedupePlaces(
     [countryCode],
   );
   const free = await db.query<{ domain: string }>('SELECT domain FROM free_email_domains');
+  const placeWords = await countryPlaceWords(db, countryCode);
   const { groups, possible } = findDuplicates(
     rows.map((r) => ({
       id: r.id,
@@ -106,14 +141,29 @@ export async function dedupePlaces(
     })),
     rules,
     new Set(free.rows.map((r) => r.domain)),
+    placeWords,
   );
   const names = new Map(rows.map((r) => [r.id, r.name]));
   let merged = 0;
-  if (!dryRun) {
-    for (const group of groups) {
-      const result = await mergePlaceGroup(db, group);
-      merged += result?.mergedIds.length ?? 0;
-    }
+  if (!dryRun && groups.length > 0) {
+    onProgress?.(`  ${groups.length} groups of duplicates found among ${rows.length} places`);
+    // Each merge is its own transaction; several run at once because every merge needs
+    // a dozen short queries and a remote database answers each one with some delay.
+    let next = 0;
+    let done = 0;
+    const step = Math.max(100, Math.ceil(groups.length / 10));
+    const runner = async (): Promise<void> => {
+      while (next < groups.length) {
+        const group = groups[next] as DuplicateGroup;
+        next += 1;
+        const result = await mergePlaceGroup(db, group);
+        merged += result?.mergedIds.length ?? 0;
+        done += 1;
+        if (done % step === 0) onProgress?.(`  ${done}/${groups.length} groups merged`);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(MERGE_CONCURRENCY, groups.length) }, runner));
+    if (done % step !== 0) onProgress?.(`  ${done}/${groups.length} groups merged`);
   }
   return { groups, possible, merged, names };
 }
@@ -210,12 +260,15 @@ export async function applyQualityAndScore(
     mx_valid: boolean | null;
     is_own_domain: boolean | null;
     has_primary: boolean;
+    sells_online: boolean;
   }>(
     `SELECT p.id, p.city_name, p.phone_valid, p.website_domain, p.rating, p.rating_count,
             p.business_status, p.is_chain, p.needs_review, p.review_reasons, p.score,
             EXISTS (SELECT 1 FROM place_subcategories ps WHERE ps.place_id = p.id) AS has_category,
-            e.syntax_valid, e.mx_valid, e.is_own_domain, e.id IS NOT NULL AS has_primary
+            e.syntax_valid, e.mx_valid, e.is_own_domain, e.id IS NOT NULL AS has_primary,
+            coalesce(sc.sells_online, false) AS sells_online
      FROM places p LEFT JOIN emails e ON e.place_id = p.id AND e.is_primary
+     LEFT JOIN domain_shop_checks sc ON sc.domain = p.website_domain
      WHERE p.country_code = $1`,
     [countryCode],
   );
@@ -239,6 +292,7 @@ export async function applyQualityAndScore(
       businessStatus: r.business_status,
       isChain: r.is_chain,
       hasCategory: r.has_category,
+      sellsOnline: r.sells_online,
       primary: r.has_primary
         ? {
             syntaxValid: r.syntax_valid ?? false,
@@ -323,18 +377,45 @@ export interface PipelineSummary {
 /**
  * Runs fn while holding a database-wide lock, so the worker and an export never run the
  * lead pipeline (dedupe, merges, scores) at the same time.
+ *
+ * The lock is TRANSACTION-scoped (pg_advisory_xact_lock) on a connection that keeps a
+ * transaction open while fn runs. That is safe behind a connection pooler such as Neon's
+ * (PgBouncer, transaction mode): the pooler keeps the server connection for this client
+ * until the transaction ends, and Postgres frees the lock on COMMIT, ROLLBACK or when the
+ * connection drops. A session lock (pg_advisory_lock) can stay behind on a pooled server
+ * connection after the program has ended and block every later run.
  */
-export async function withPipelineLock<T>(db: Pool, fn: () => Promise<T>): Promise<T> {
+export async function withPipelineLock<T>(
+  db: Pool,
+  fn: () => Promise<T>,
+  onWait?: () => void,
+): Promise<T> {
   const client = await db.connect();
+  let broken = false;
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', ['ainoviro-lead-pipeline']);
-    try {
-      return await fn();
-    } finally {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', ['ainoviro-lead-pipeline']);
+    await client.query('BEGIN');
+    // The transaction stays idle while fn works on other connections: never time it out.
+    await client.query('SET LOCAL idle_in_transaction_session_timeout = 0');
+    const free = await client.query<{ ok: boolean }>(
+      'SELECT pg_try_advisory_xact_lock(hashtext($1)) AS ok',
+      ['ainoviro-lead-pipeline'],
+    );
+    if (free.rows[0]?.ok !== true) {
+      // Someone else (usually the worker) is running it: wait for them to finish.
+      onWait?.();
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['ainoviro-lead-pipeline']);
     }
+    return await fn();
+  } catch (err) {
+    broken = true;
+    throw err;
   } finally {
-    client.release();
+    // Ending the transaction releases the lock (nothing was written on this connection).
+    await client.query(broken ? 'ROLLBACK' : 'COMMIT').catch(() => {
+      broken = true;
+    });
+    // A connection whose transaction could not be ended is thrown away, never reused.
+    client.release(broken ? true : undefined);
   }
 }
 
@@ -343,9 +424,12 @@ export async function runLeadPipeline(
   countryCode: string,
   rules: LeadRules,
   dryRun: boolean,
+  onProgress?: PipelineProgress,
 ): Promise<PipelineSummary> {
-  const dedupe = await dedupePlaces(db, countryCode, rules.dedupe, dryRun);
+  onProgress?.('  looking for duplicates...');
+  const dedupe = await dedupePlaces(db, countryCode, rules.dedupe, dryRun, onProgress);
   // After merging, so the survivor gets one primary from the union of subcategories.
+  onProgress?.('  categories, chains, quality and scores...');
   const primarySubcategories = await setPrimarySubcategories(db, countryCode, dryRun);
   const chains = await applyChains(db, countryCode, rules.chains, dryRun);
   const quality = await applyQualityAndScore(db, countryCode, rules, dryRun);

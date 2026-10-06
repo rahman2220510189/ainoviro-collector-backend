@@ -35,6 +35,11 @@ const envSchema = z.object({
     .transform((value) => value === 'true'),
   // Google Places API (New). Only required for real searches; never logged.
   GOOGLE_PLACES_API_KEY: z.string().min(10, 'GOOGLE_PLACES_API_KEY looks too short').optional(),
+  // Hugging Face read token for the Foursquare OS Places download (gated dataset). Never logged.
+  HF_TOKEN: z
+    .string()
+    .regex(/^hf_[A-Za-z0-9]{20,}$/, 'HF_TOKEN should look like hf_ followed by letters and digits')
+    .optional(),
   // Real Google by default; can point to the local mock server for development.
   GOOGLE_PLACES_BASE_URL: z.string().url().default('https://places.googleapis.com'),
   // Real Google requests need an explicit "true" (safety switch).
