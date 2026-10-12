@@ -51,17 +51,51 @@ export function prepareGooglePlaces(
   return { prepared, skippedClosed: results.length - open.length };
 }
 
+/** PostgreSQL gave up one of two transactions that waited on each other: safe to repeat. */
+export function isRetryableDbError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === '40P01' /* deadlock_detected */ || code === '40001'; /* serialization_failure */
+}
+
+/** How often a save is repeated after a deadlock before the task is marked failed. */
+const SAVE_ATTEMPTS = 4;
+
 /**
  * Saves one search's results in ONE transaction with three bulk statements:
  * places (upsert by google_place_id), place_sources (provenance) and
  * place_subcategories (why it was found). Permanently closed places are skipped.
+ *
+ * Several searches are saved at the same time, and overlapping areas return the same
+ * businesses. Rows are written in a fixed order (by Google id), which keeps two saves from
+ * locking each other; if PostgreSQL still reports a deadlock, the save is repeated after a
+ * short pause. The Google requests are already paid for, so they are never thrown away.
  */
 export async function writeGooglePlaces(
   db: Pool,
   results: GooglePlace[],
   ctx: PlaceWriteContext,
 ): Promise<PlaceWriteResult> {
-  const { prepared: all, skippedClosed } = prepareGooglePlaces(results, ctx);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await writeGooglePlacesOnce(db, results, ctx);
+    } catch (err) {
+      if (!isRetryableDbError(err) || attempt >= SAVE_ATTEMPTS) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 200 * attempt + Math.random() * 300));
+    }
+  }
+}
+
+async function writeGooglePlacesOnce(
+  db: Pool,
+  results: GooglePlace[],
+  ctx: PlaceWriteContext,
+): Promise<PlaceWriteResult> {
+  const { prepared: unsorted, skippedClosed } = prepareGooglePlaces(results, ctx);
+  // One lock order for every save (see above); duplicates inside one result list are dropped.
+  const seen = new Set<string>();
+  const all = unsorted
+    .filter((p) => !seen.has(p.place.googlePlaceId) && seen.add(p.place.googlePlaceId))
+    .sort((a, b) => (a.place.googlePlaceId < b.place.googlePlaceId ? -1 : 1));
   const result: PlaceWriteResult = { inserted: 0, updated: 0, skippedClosed };
   if (all.length === 0) return result;
 
