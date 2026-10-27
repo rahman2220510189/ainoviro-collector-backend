@@ -3,14 +3,13 @@ import { promises as dnsPromises } from 'node:dns';
 /** Looks up MX records; replaceable in tests so no real DNS is used. */
 export type MxResolver = (domain: string) => Promise<{ exchange: string; priority: number }[]>;
 
-const TRANSIENT = new Set([
-  'ETIMEOUT',
-  'ESERVFAIL',
-  'ECONNREFUSED',
-  'ECANCELLED',
-  'EREFUSED',
-  'ETIMEDOUT',
-]);
+/**
+ * The only DNS answers that really mean "this domain cannot receive email": the domain
+ * does not exist, or it has no MX record. Every other error (timeouts, refused or broken
+ * answers, network errors on the host) means "no answer" and is retried later; treating
+ * those as "no mail server" wrongly held good leads back (step 7.4).
+ */
+const DEFINITE_NO = new Set(['ENOTFOUND', 'ENODATA']);
 
 export function defaultMxResolver(): MxResolver {
   const resolver = new dnsPromises.Resolver({ timeout: 5000, tries: 2 });
@@ -60,7 +59,8 @@ export function dohMxResolver(fetchFn: typeof fetch = fetch): MxResolver {
  * Answers "can this domain receive email?" from DNS MX records, with a cache so
  * each domain is looked up once per process (gmail.com is asked once, not 500 times).
  *  - true:  at least one real MX record;
- *  - false: domain does not exist, has no MX, or publishes a "null MX" (RFC 7505);
+ *  - false: domain does not exist, has no MX, or publishes a "null MX" (RFC 7505),
+ *           confirmed by the fallback resolver when there is one;
  *  - null:  DNS did not answer (timeout); unknown, try again later.
  * No SMTP probing (spec: v1 is syntax + MX only).
  */
@@ -94,10 +94,16 @@ export class MxChecker {
     return pending;
   }
 
+  /**
+   * A "yes" from the first resolver is trusted. "No answer" asks the fallback, and so does
+   * a "no": a mail server is only declared missing when the second opinion agrees (or
+   * cannot be reached), because one broken resolver must not hold good leads back.
+   */
   private async lookup(domain: string): Promise<boolean | null> {
     const first = await MxChecker.ask(this.resolve, domain);
-    if (first !== null || !this.fallback) return first;
-    return MxChecker.ask(this.fallback, domain);
+    if (first === true || !this.fallback) return first;
+    const second = await MxChecker.ask(this.fallback, domain);
+    return second ?? first;
   }
 
   private static async ask(resolve: MxResolver, domain: string): Promise<boolean | null> {
@@ -106,7 +112,7 @@ export class MxChecker {
       return records.some((r) => r.exchange !== '' && r.exchange !== '.');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? '';
-      return TRANSIENT.has(code) ? null : false;
+      return DEFINITE_NO.has(code) ? false : null;
     }
   }
 }

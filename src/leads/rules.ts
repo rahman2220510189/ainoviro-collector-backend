@@ -28,6 +28,8 @@ export const leadRulesSchema = z.object({
       emailSyntax: z.boolean().default(true),
       /** The primary email's domain must have a working mail server (MX). */
       emailMx: z.boolean().default(true),
+      /** The primary email is a data-protection/legal mailbox (privacy@, dpo@, legal@). */
+      roleEmail: z.boolean().default(true),
       realCity: z.boolean().default(true),
       category: z.boolean().default(true),
       validPhone: z.boolean().default(true),
@@ -35,6 +37,7 @@ export const leadRulesSchema = z.object({
     .default({
       emailSyntax: true,
       emailMx: true,
+      roleEmail: true,
       realCity: true,
       category: true,
       validPhone: true,

@@ -423,6 +423,8 @@ model Email {
   syntaxValid     Boolean      @default(false) @map("syntax_valid")
   /// null = not checked yet.
   mxValid         Boolean?     @map("mx_valid")
+  /// When the mail server was last checked by the recheck loop (null = never rechecked).
+  mxCheckedAt     DateTime?    @map("mx_checked_at") @db.Timestamptz(3)
   isDisposable    Boolean      @default(false) @map("is_disposable")
   /// How it was found, e.g. "mailto", "text", "obfuscated", "cfemail", "jsonld", "import".
   source          String
@@ -446,6 +448,7 @@ model Email {
   @@index([placeId])
   @@index([status])
   @@index([exportedAt])
+  @@index([mxValid, mxCheckedAt], map: "emails_mx_recheck_idx")
   // At most one primary email per place.
   @@unique([placeId, isPrimary], where: { isPrimary: true }, map: "emails_one_primary_per_place")
   @@map("emails")

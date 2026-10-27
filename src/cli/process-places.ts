@@ -20,6 +20,7 @@ const REASON_TEXT: Record<string, string> = {
   EMAIL_SYNTAX: 'email syntax invalid',
   EMAIL_NO_MX: 'email domain has no mail server',
   EMAIL_MX_UNKNOWN: 'mail server not checked yet',
+  EMAIL_ROLE: 'data-protection or legal mailbox (privacy@, dpo@)',
   NO_REAL_CITY: 'no real city',
   NO_CATEGORY: 'no category',
   PHONE_INVALID: 'no valid phone',

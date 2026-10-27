@@ -27,7 +27,7 @@ import {
   type CrawlContext,
 } from './enrich/crawl-queue';
 import { MxChecker } from './enrich/mx';
-import { recheckUnknownMx } from './enrich/mx-recheck';
+import { fixPrimaryEmails, recheckMx } from './enrich/mx-recheck';
 import { claimNextShopCheck, runShopCheck } from './enrich/shop-check';
 import { runDiscoveryTask, type DiscoveryContext } from './jobs/discovery';
 import { MOCK_QUOTA_PROVIDER, runModeFor } from './jobs/keys';
@@ -264,15 +264,21 @@ async function main(): Promise<void> {
     }
   };
 
-  // --- 2c. Mail servers that could not be checked: ask again --------------------------
+  // --- 2c. Mail servers "not checked" or "none": ask again; then fix primary emails ------
   const mxRecheckLoop = async (): Promise<void> => {
     await idle(60_000, stopped);
     while (!stopping) {
       try {
-        const r = await recheckUnknownMx(pool, sharedMx);
+        // A fresh checker per batch: the shared one caches answers for the whole process.
+        const r = await recheckMx(pool, new MxChecker());
         if (r.domains > 0) {
           log.info(r, 'Mail servers rechecked');
           if (r.placesTouched > 0) dirty = true;
+        }
+        const fixed = await fixPrimaryEmails(pool);
+        if (fixed.replaced > 0) {
+          log.info(fixed, 'Primary emails replaced');
+          dirty = true;
         }
         // A full batch means more are waiting: continue soon; otherwise check every 30 min.
         await idle(r.domains >= 300 ? 10_000 : 30 * 60_000, stopped);

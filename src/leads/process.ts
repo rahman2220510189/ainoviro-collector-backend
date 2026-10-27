@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { findDuplicates, type DuplicateGroup, type PossibleDuplicate } from './dedupe';
 import { normalizeBusinessName } from '../cleaning/name';
+import { isRoleAddress } from '../enrich/classify';
 import { mergePlaceGroup } from './merge';
 import {
   detectChains,
@@ -259,13 +260,15 @@ export async function applyQualityAndScore(
     syntax_valid: boolean | null;
     mx_valid: boolean | null;
     is_own_domain: boolean | null;
+    email_normalized: string | null;
     has_primary: boolean;
     sells_online: boolean;
   }>(
     `SELECT p.id, p.city_name, p.phone_valid, p.website_domain, p.rating, p.rating_count,
             p.business_status, p.is_chain, p.needs_review, p.review_reasons, p.score,
             EXISTS (SELECT 1 FROM place_subcategories ps WHERE ps.place_id = p.id) AS has_category,
-            e.syntax_valid, e.mx_valid, e.is_own_domain, e.id IS NOT NULL AS has_primary,
+            e.syntax_valid, e.mx_valid, e.is_own_domain, e.email_normalized,
+            e.id IS NOT NULL AS has_primary,
             coalesce(sc.sells_online, false) AS sells_online
      FROM places p LEFT JOIN emails e ON e.place_id = p.id AND e.is_primary
      LEFT JOIN domain_shop_checks sc ON sc.domain = p.website_domain
@@ -298,6 +301,7 @@ export async function applyQualityAndScore(
             syntaxValid: r.syntax_valid ?? false,
             mxValid: r.mx_valid,
             isOwnDomain: r.is_own_domain ?? false,
+            isRoleAddress: r.email_normalized ? isRoleAddress(r.email_normalized) : false,
           }
         : null,
     };

@@ -18,6 +18,8 @@ export interface LeadFacts {
     syntaxValid: boolean;
     mxValid: boolean | null;
     isOwnDomain: boolean;
+    /** A data-protection/legal mailbox such as privacy@ or dpo@ (step 7.4). */
+    isRoleAddress?: boolean;
   } | null;
 }
 
@@ -25,6 +27,7 @@ export type ReviewReason =
   | 'EMAIL_SYNTAX'
   | 'EMAIL_NO_MX'
   | 'EMAIL_MX_UNKNOWN'
+  | 'EMAIL_ROLE'
   | 'NO_REAL_CITY'
   | 'NO_CATEGORY'
   | 'PHONE_INVALID';
@@ -65,6 +68,7 @@ export function reviewReasons(facts: LeadFacts, rules: LeadRules['quality']): Re
   if (rules.emailSyntax && !facts.primary.syntaxValid) reasons.push('EMAIL_SYNTAX');
   if (rules.emailMx && facts.primary.mxValid === false) reasons.push('EMAIL_NO_MX');
   if (rules.emailMx && facts.primary.mxValid === null) reasons.push('EMAIL_MX_UNKNOWN');
+  if (rules.roleEmail && facts.primary.isRoleAddress) reasons.push('EMAIL_ROLE');
   if (rules.realCity && !isRealCity(facts.cityName, facts.countryCode))
     reasons.push('NO_REAL_CITY');
   if (rules.category && !facts.hasCategory) reasons.push('NO_CATEGORY');

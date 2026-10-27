@@ -16,7 +16,7 @@ describe('mail-server check falls back to DNS over HTTPS', () => {
     });
   });
 
-  it('asks the fallback only when the system DNS gives no answer', async () => {
+  it('asks the fallback when the system DNS gives no answer or says no', async () => {
     const timeout = async () => {
       throw Object.assign(new Error('t'), { code: 'ETIMEOUT' });
     };
@@ -37,7 +37,30 @@ describe('mail-server check falls back to DNS over HTTPS', () => {
       },
     );
     expect(await noMx.check('c.cy')).toBe(false);
-    expect(asked).toBe(false); // a clear "no" from system DNS is final
+    expect(asked).toBe(true); // "no mail server" needs a second opinion
+
+    // System DNS says "does not exist", the second opinion finds a mail server: trust it.
+    const wrongNo = new MxChecker(
+      async () => {
+        throw Object.assign(new Error('n'), { code: 'ENOTFOUND' });
+      },
+      async () => [{ exchange: 'mx.e.cy', priority: 5 }],
+    );
+    expect(await wrongNo.check('e.cy')).toBe(true);
+
+    // A "no" stays when the second opinion cannot be reached.
+    const noAndSilent = new MxChecker(async () => {
+      throw Object.assign(new Error('n'), { code: 'ENODATA' });
+    }, timeout);
+    expect(await noAndSilent.check('f.cy')).toBe(false);
+
+    // Host network errors are "no answer", never "no mail server".
+    for (const code of ['ECONNRESET', 'EAI_AGAIN', 'EBADRESP', 'ESERVFAIL', 'EREFUSED']) {
+      const broken = new MxChecker(async () => {
+        throw Object.assign(new Error(code), { code });
+      });
+      expect(await broken.check(`${code.toLowerCase()}.cy`)).toBeNull();
+    }
 
     // A custom resolver without a fallback (tests) never goes to the network.
     expect(await new MxChecker(timeout).check('d.cy')).toBeNull();
