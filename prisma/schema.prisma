@@ -801,3 +801,18 @@ model DatasetImport {
   @@index([source, countryCode])
   @@map("dataset_imports")
 }
+
+/// Step 7.5: hourly counts per country for the dashboard's warnings (kept 45 days).
+model HealthSnapshot {
+  id            Int      @id @default(autoincrement())
+  countryCode   String   @map("country_code") @db.Char(2)
+  takenAt       DateTime @default(now()) @map("taken_at") @db.Timestamptz(3)
+  ready         Int
+  needsReview   Int      @map("needs_review")
+  reasons       Json     @default("{}")
+  emailsTotal   Int      @map("emails_total")
+  exportedTotal Int      @map("exported_total")
+
+  @@index([countryCode, takenAt], map: "health_snapshots_country_taken_idx")
+  @@map("health_snapshots")
+}

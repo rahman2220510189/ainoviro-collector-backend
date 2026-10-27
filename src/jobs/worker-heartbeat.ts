@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { LoopState } from '../health/loop-health';
 import type { RunMode } from './keys';
 
 /** The worker writes this settings row every HEARTBEAT_SECONDS while it runs. */
@@ -16,6 +17,8 @@ export interface WorkerHeartbeat {
   /** Crawls websites for emails. */
   crawling: boolean;
   concurrency: number;
+  /** Health of each loop since the worker started (step 7.5). */
+  loops?: LoopState[];
 }
 
 export interface WorkerStatus {
@@ -24,6 +27,7 @@ export interface WorkerStatus {
   mode: RunMode | null;
   searching: boolean;
   crawling: boolean;
+  loops: LoopState[];
 }
 
 export async function writeHeartbeat(db: Pool, beat: Omit<WorkerHeartbeat, 'at'>): Promise<void> {
@@ -40,7 +44,14 @@ export function workerStatusFrom(value: unknown, now: Date = new Date()): Worker
   const beat = value as Partial<WorkerHeartbeat> | null | undefined;
   const at = typeof beat?.at === 'string' ? new Date(beat.at) : null;
   if (!at || Number.isNaN(at.getTime())) {
-    return { running: false, lastSeenAt: null, mode: null, searching: false, crawling: false };
+    return {
+      running: false,
+      lastSeenAt: null,
+      mode: null,
+      searching: false,
+      crawling: false,
+      loops: [],
+    };
   }
   return {
     running: now.getTime() - at.getTime() < HEARTBEAT_STALE_SECONDS * 1000,
@@ -48,5 +59,6 @@ export function workerStatusFrom(value: unknown, now: Date = new Date()): Worker
     mode: beat?.mode === 'LIVE' || beat?.mode === 'MOCK' ? beat.mode : null,
     searching: beat?.searching === true,
     crawling: beat?.crawling === true,
+    loops: Array.isArray(beat?.loops) ? beat.loops : [],
   };
 }

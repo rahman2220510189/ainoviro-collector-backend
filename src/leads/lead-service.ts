@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { AppError } from '../lib/errors';
+import { REVIEW_REASONS } from './quality';
 
 export const PLACE_STATUSES = [
   'NEW',
@@ -29,6 +30,8 @@ export const leadFiltersSchema = z.object({
   emailType: z.enum(['GENERIC', 'PERSONAL']).optional(),
   minScore: z.coerce.number().int().optional(),
   needsReview: yesNo,
+  /** Held back for this reason (e.g. EMAIL_NO_MX); opened from the dashboard's review panel. */
+  reason: z.enum(REVIEW_REASONS).optional(),
   /** new = not exported yet; exported = already in a CSV. */
   exported: z.enum(['new', 'exported']).optional(),
   chain: yesNo,
@@ -167,6 +170,7 @@ function whereSql(f: LeadFilters): { sql: string; params: unknown[] } {
   if (f.emailType) add((n) => `e.email_type = ${n}::email_type`, f.emailType);
   if (f.minScore !== undefined) add((n) => `p.score >= ${n}`, f.minScore);
   if (f.needsReview) parts.push(f.needsReview === 'yes' ? 'p.needs_review' : 'NOT p.needs_review');
+  if (f.reason) add((n) => `${n} = ANY(p.review_reasons)`, f.reason);
   if (f.chain) parts.push(f.chain === 'yes' ? 'p.is_chain' : 'NOT p.is_chain');
   if (f.sellsOnline)
     parts.push(

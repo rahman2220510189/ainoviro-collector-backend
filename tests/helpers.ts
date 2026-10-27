@@ -167,6 +167,7 @@ export const FAKE_QUOTA: QuotaStatus = {
     mode: 'MOCK',
     searching: true,
     crawling: true,
+    loops: [],
   },
 };
 
@@ -210,6 +211,7 @@ export const FAKE_DASHBOARD: DashboardSummary = {
   topCities: [{ name: 'Limassol', withEmail: 40, ready: 8 }],
   topCategories: [{ name: 'Personal Care & Beauty', withEmail: 64, ready: 12 }],
   activity: [{ date: '2026-10-02', newPlaces: 3, newEmails: 1, exported: 0 }],
+  health: { reviewReasons: { EMAIL_NO_MX: 2 }, alerts: [], loops: [], comparedWith: null },
 };
 
 const view = (values: Record<string, unknown>) => ({ values, defaults: values, updatedAt: null });

@@ -23,14 +23,16 @@ export interface LeadFacts {
   } | null;
 }
 
-export type ReviewReason =
-  | 'EMAIL_SYNTAX'
-  | 'EMAIL_NO_MX'
-  | 'EMAIL_MX_UNKNOWN'
-  | 'EMAIL_ROLE'
-  | 'NO_REAL_CITY'
-  | 'NO_CATEGORY'
-  | 'PHONE_INVALID';
+export const REVIEW_REASONS = [
+  'EMAIL_SYNTAX',
+  'EMAIL_NO_MX',
+  'EMAIL_MX_UNKNOWN',
+  'EMAIL_ROLE',
+  'NO_REAL_CITY',
+  'NO_CATEGORY',
+  'PHONE_INVALID',
+] as const;
+export type ReviewReason = (typeof REVIEW_REASONS)[number];
 
 /**
  * Country names (lowercase, no accents) that are never a city, whatever the place's

@@ -1,6 +1,10 @@
 import type { Pool } from 'pg';
 import { countDueDomains } from '../enrich/crawl-queue';
 import { scopeSql } from '../export/export-service';
+import { computeAlerts, type HealthAlert } from '../health/alerts';
+import { LOOP_LABEL, type LoopState } from '../health/loop-health';
+import { healthCounts, snapshotAgo } from '../health/snapshots';
+import { WORKER_HEARTBEAT_KEY, workerStatusFrom } from '../jobs/worker-heartbeat';
 import { GOOGLE_PROVIDER, GOOGLE_TEXT_SEARCH_SKU } from '../quota/quota-guard';
 
 /** Dates on the dashboard follow Cyprus time. */
@@ -70,6 +74,16 @@ export interface DashboardSummary {
   topCategories: { name: string; withEmail: number; ready: number }[];
   /** One row per day for the last ACTIVITY_DAYS days, oldest first. */
   activity: { date: string; newPlaces: number; newEmails: number; exported: number }[];
+  /** Step 7.5: why leads are held, warnings, and the worker's loops. */
+  health: {
+    /** Held (needs review) new leads per reason; one lead can have several reasons. */
+    reviewReasons: Record<string, number>;
+    alerts: HealthAlert[];
+    /** Empty when the worker is not running. */
+    loops: (LoopState & { label: string })[];
+    /** Time of the snapshot compared against (about 24 h ago), if any. */
+    comparedWith: string | null;
+  };
 }
 
 export interface DashboardService {
@@ -209,6 +223,27 @@ export function createDashboardService(db: Pool): DashboardService {
         // Same rule the worker uses to pick the next website (all countries).
         countDueDomains(db),
       ]);
+      const [current, dayAgo, sixHoursAgo, beat, lastCrawl] = await Promise.all([
+        healthCounts(db, country),
+        snapshotAgo(db, country, 24),
+        snapshotAgo(db, country, 6),
+        db.query<{ value: unknown }>('SELECT value FROM settings WHERE key = $1', [
+          WORKER_HEARTBEAT_KEY,
+        ]),
+        db.query<{ at: Date | null }>('SELECT max(crawled_at) AS at FROM domain_crawls'),
+      ]);
+      const worker = workerStatusFrom(beat.rows[0]?.value);
+      const lastCrawlAt = lastCrawl.rows[0]?.at
+        ? new Date(lastCrawl.rows[0].at).toISOString()
+        : null;
+      const alerts = computeAlerts({
+        now: new Date(),
+        worker: worker.running ? { crawling: worker.crawling, loops: worker.loops } : null,
+        current,
+        dayAgo,
+        sixHoursAgo,
+        websites: { waiting, lastCrawlAt },
+      });
 
       const l = leads.rows[0] ?? {};
       const e = emails.rows[0] ?? {};
@@ -281,6 +316,14 @@ export function createDashboardService(db: Pool): DashboardService {
           newEmails: num(r.new_emails),
           exported: num(r.exported),
         })),
+        health: {
+          reviewReasons: current.reasons,
+          alerts,
+          loops: worker.running
+            ? worker.loops.map((loop) => ({ ...loop, label: LOOP_LABEL[loop.name] ?? loop.name }))
+            : [],
+          comparedWith: dayAgo?.takenAt ?? null,
+        },
       };
     },
   };

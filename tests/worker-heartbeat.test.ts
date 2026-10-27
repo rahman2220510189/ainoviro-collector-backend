@@ -15,6 +15,7 @@ describe('worker heartbeat', () => {
       mode: 'LIVE',
       searching: false,
       crawling: true,
+      loops: [],
     });
   });
 
@@ -32,6 +33,7 @@ describe('worker heartbeat', () => {
       mode: null,
       searching: false,
       crawling: false,
+      loops: [],
     });
   });
 });

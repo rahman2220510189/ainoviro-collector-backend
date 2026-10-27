@@ -11,6 +11,8 @@
  *   2b. Online-shop check: home pages of businesses that already have an email are read
  *      once, to see whether they sell online (one at a time, after the email crawling).
  *   3. Lead pipeline: after new results, de-duplication and scores are refreshed.
+ *   4. Health: every loop reports its rounds (in the heartbeat) and is restarted if it
+ *      ever stops; hourly snapshots let the dashboard warn about silent problems.
  * It also writes a heartbeat every 30 s, so the website can show whether it is running.
  *
  * Usage: npm run worker   (Ctrl+C finishes current tasks, then stops)
@@ -35,6 +37,8 @@ import { claimRefresh, runRefresh } from './datasets/refresh';
 import { runOvertureTask } from './jobs/overture-task';
 import { claimNextOvertureTask, claimNextTask, recoverStaleTasks } from './jobs/task-store';
 import { HEARTBEAT_SECONDS, writeHeartbeat } from './jobs/worker-heartbeat';
+import { LoopHealth, supervise } from './health/loop-health';
+import { takeHealthSnapshots } from './health/snapshots';
 import { runLeadPipeline, withPipelineLock } from './leads/process';
 import { loadLeadRules } from './leads/rules';
 import { createLogger } from './lib/logger';
@@ -48,6 +52,8 @@ const LEASE_MINUTES = 10;
 const CRAWL_IDLE_MS = 30_000;
 /** How often to check whether the lead pipeline needs to run. */
 const PIPELINE_EVERY_MS = 2 * 60_000;
+/** Hourly counts for the dashboard's warnings (step 7.5). */
+const SNAPSHOT_EVERY_MS = 60 * 60_000;
 /** Settings changed on the website reach a running worker within this time. */
 const SETTINGS_RELOAD_MS = 60_000;
 
@@ -119,6 +125,8 @@ async function main(): Promise<void> {
   const stopped = (): boolean => stopping;
   /** Set when new places or emails arrived; the pipeline timer then refreshes the leads. */
   let dirty = false;
+  /** Each loop reports its rounds here; the heartbeat carries it to the dashboard. */
+  const health = new LoopHealth();
 
   // --- heartbeat -----------------------------------------------------------------------
   const beat = (): void => {
@@ -127,6 +135,7 @@ async function main(): Promise<void> {
       searching,
       crawling,
       concurrency: env.WORKER_CONCURRENCY,
+      loops: health.snapshot(),
     }).catch((err: unknown) => log.warn({ err }, 'Heartbeat failed'));
   };
   beat();
@@ -139,6 +148,7 @@ async function main(): Promise<void> {
     while (!stopping) {
       try {
         const task = await claimNextTask(pool, mode);
+        health.ok('search');
         if (!task) {
           await sleep(pollMs);
           continue;
@@ -146,6 +156,7 @@ async function main(): Promise<void> {
         await runDiscoveryTask(ctx, task);
         dirty = true;
       } catch (err) {
+        health.fail('search', err);
         log.error({ err, worker }, 'Search loop error');
         await sleep(pollMs);
       }
@@ -172,6 +183,7 @@ async function main(): Promise<void> {
     while (!stopping) {
       try {
         const task = await claimNextOvertureTask(pool);
+        health.ok('overture');
         if (!task) {
           await idle(pollMs, stopped);
           continue;
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
         const result = await runOvertureTask({ db: pool, mx: sharedMx, log }, task);
         if (result && result.newPlaces > 0) dirty = true;
       } catch (err) {
+        health.fail('overture', err);
         log.error({ err }, 'Free data loop error');
         await idle(pollMs, stopped);
       }
@@ -200,7 +213,9 @@ async function main(): Promise<void> {
           if (done.state === 'DONE') log.info({ result: done.result }, 'Overture update finished');
           else log.error({ error: done.error }, 'Overture update failed');
         }
+        health.ok('refresh');
       } catch (err) {
+        health.fail('refresh', err);
         log.error({ err }, 'Overture update loop error');
       }
       await idle(30_000, stopped);
@@ -221,6 +236,7 @@ async function main(): Promise<void> {
     while (!stopping) {
       try {
         const claimed = await claimNextDomain(pool);
+        health.ok('crawl');
         if (!claimed) {
           await idle(CRAWL_IDLE_MS, stopped);
           continue;
@@ -236,6 +252,7 @@ async function main(): Promise<void> {
         );
         if (outcome.saved.inserted > 0) dirty = true;
       } catch (err) {
+        health.fail('crawl', err);
         log.error({ err, worker }, 'Crawl loop error');
         await idle(CRAWL_IDLE_MS, stopped);
       }
@@ -248,6 +265,7 @@ async function main(): Promise<void> {
     while (!stopping) {
       try {
         const claimed = await claimNextShopCheck(pool);
+        health.ok('shop');
         if (!claimed) {
           await idle(60_000, stopped);
           continue;
@@ -258,6 +276,7 @@ async function main(): Promise<void> {
           dirty = true;
         }
       } catch (err) {
+        health.fail('shop', err);
         log.error({ err }, 'Shop check loop error');
         await idle(CRAWL_IDLE_MS, stopped);
       }
@@ -280,9 +299,11 @@ async function main(): Promise<void> {
           log.info(fixed, 'Primary emails replaced');
           dirty = true;
         }
+        health.ok('mx');
         // A full batch means more are waiting: continue soon; otherwise check every 30 min.
         await idle(r.domains >= 300 ? 10_000 : 30 * 60_000, stopped);
       } catch (err) {
+        health.fail('mx', err);
         log.error({ err }, 'Mail server recheck error');
         await idle(5 * 60_000, stopped);
       }
@@ -321,18 +342,32 @@ async function main(): Promise<void> {
       );
       log.info({ country, ready: summary.ready }, 'Leads refreshed');
     }
+    health.ok('leads');
   };
   const pipelineTimer = setInterval(() => {
     if (!dirty || pipelineRunning) return;
     pipelineRunning = runPipeline()
       .catch((err: unknown) => {
         dirty = true;
+        health.fail('leads', err);
         log.error({ err }, 'Lead pipeline failed (will retry)');
       })
       .finally(() => {
         pipelineRunning = null;
       });
   }, PIPELINE_EVERY_MS);
+
+  // --- 4. Health snapshot: hourly counts for the dashboard's warnings ---------------------
+  const snapshot = (): void => {
+    takeHealthSnapshots(pool)
+      .then(() => health.ok('snapshot'))
+      .catch((err: unknown) => {
+        health.fail('snapshot', err);
+        log.warn({ err }, 'Health snapshot failed');
+      });
+  };
+  const firstSnapshot = setTimeout(snapshot, 3 * 60_000);
+  const snapshotTimer = setInterval(snapshot, SNAPSHOT_EVERY_MS);
 
   log.info(
     {
@@ -347,16 +382,31 @@ async function main(): Promise<void> {
     'Worker started (settings changes are picked up within a minute)',
   );
 
+  // Each loop is supervised: if it ever ends by itself, it is logged and started again.
+  const keepAlive = (name: string, run: () => Promise<void>): Promise<void> => {
+    health.register(name);
+    return supervise(name, run, {
+      health,
+      stopped,
+      pause: (ms) => idle(ms, stopped),
+      onRestart: (err) => log.error({ err, loop: name }, 'Loop stopped unexpectedly; restarting'),
+    });
+  };
   const loops = [
-    overtureLoop(),
-    refreshLoop(),
-    shopLoop(),
-    mxRecheckLoop(),
+    keepAlive('overture', overtureLoop),
+    keepAlive('refresh', refreshLoop),
+    keepAlive('mx', mxRecheckLoop),
+    ...(crawling ? [keepAlive('shop', shopLoop)] : []),
     ...(searching
-      ? Array.from({ length: env.WORKER_CONCURRENCY }, (_, i) => searchLoop(i + 1))
+      ? Array.from({ length: env.WORKER_CONCURRENCY }, (_, i) =>
+          keepAlive('search', () => searchLoop(i + 1)),
+        )
       : []),
-    ...Array.from({ length: crawlConcurrency }, (_, i) => crawlLoop(i + 1)),
+    ...Array.from({ length: crawlConcurrency }, (_, i) =>
+      keepAlive('crawl', () => crawlLoop(i + 1)),
+    ),
   ];
+  health.register('leads');
 
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
@@ -365,6 +415,8 @@ async function main(): Promise<void> {
     clearInterval(heartbeatTimer);
     clearInterval(pipelineTimer);
     clearInterval(settingsTimer);
+    clearInterval(snapshotTimer);
+    clearTimeout(firstSnapshot);
     if (recoveryTimer) clearInterval(recoveryTimer);
     await Promise.all(loops);
     await pipelineRunning;
