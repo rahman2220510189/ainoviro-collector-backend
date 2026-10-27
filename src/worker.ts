@@ -27,6 +27,7 @@ import {
   type CrawlContext,
 } from './enrich/crawl-queue';
 import { MxChecker } from './enrich/mx';
+import { recheckUnknownMx } from './enrich/mx-recheck';
 import { claimNextShopCheck, runShopCheck } from './enrich/shop-check';
 import { runDiscoveryTask, type DiscoveryContext } from './jobs/discovery';
 import { MOCK_QUOTA_PROVIDER, runModeFor } from './jobs/keys';
@@ -263,6 +264,25 @@ async function main(): Promise<void> {
     }
   };
 
+  // --- 2c. Mail servers that could not be checked: ask again --------------------------
+  const mxRecheckLoop = async (): Promise<void> => {
+    await idle(60_000, stopped);
+    while (!stopping) {
+      try {
+        const r = await recheckUnknownMx(pool, sharedMx);
+        if (r.domains > 0) {
+          log.info(r, 'Mail servers rechecked');
+          if (r.placesTouched > 0) dirty = true;
+        }
+        // A full batch means more are waiting: continue soon; otherwise check every 30 min.
+        await idle(r.domains >= 300 ? 10_000 : 30 * 60_000, stopped);
+      } catch (err) {
+        log.error({ err }, 'Mail server recheck error');
+        await idle(5 * 60_000, stopped);
+      }
+    }
+  };
+
   // --- settings reload: changes on the Settings page apply without a restart ------------
   // (Except the number of parallel searches / crawls, which is fixed at start.)
   const reloadSettings = async (): Promise<void> => {
@@ -325,6 +345,7 @@ async function main(): Promise<void> {
     overtureLoop(),
     refreshLoop(),
     shopLoop(),
+    mxRecheckLoop(),
     ...(searching
       ? Array.from({ length: env.WORKER_CONCURRENCY }, (_, i) => searchLoop(i + 1))
       : []),

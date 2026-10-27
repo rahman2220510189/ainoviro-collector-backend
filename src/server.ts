@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { keepAwakeConfigFromEnv, startKeepAwake } from './keep-awake';
 import { EnvValidationError, loadEnv } from './config/env';
 import { createExportService } from './export/export-service';
 import { createLeadService } from './leads/lead-service';
@@ -88,8 +89,10 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
+  // On Render the server must listen on all interfaces, whatever HOST says.
+  const host = process.env.RENDER ? '0.0.0.0' : env.HOST;
   try {
-    await app.listen({ port: env.PORT, host: env.HOST });
+    await app.listen({ port: env.PORT, host });
   } catch (err) {
     await prisma.$disconnect().catch(() => undefined);
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
@@ -99,6 +102,9 @@ async function main(): Promise<void> {
     }
     throw err;
   }
+
+  const keepAwake = keepAwakeConfigFromEnv();
+  if (keepAwake) startKeepAwake(keepAwake, (msg) => app.log.info(msg));
 }
 
 main().catch((err: unknown) => {
