@@ -8,6 +8,7 @@ import { createDashboardService } from './services/dashboard-service';
 import { createSettingsService } from './services/settings-service';
 import { createDatasetService } from './datasets/dataset-service';
 import { createCountryService } from './services/country-service';
+import { createPageService } from './pages/page-service';
 import { createPrismaClient, pingDatabase } from './db/prisma';
 import { createPrismaAuthStore } from './auth/store';
 import { buildApp } from './app';
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
     settingsService: createSettingsService(pool, { onQuotaChange: (s) => quota.setLimits(s) }),
     datasetService: createDatasetService(pool),
     countryService: createCountryService(pool),
+    pageService: createPageService(pool),
   });
   app.log.info('Database connection OK');
 

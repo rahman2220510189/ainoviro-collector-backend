@@ -33,6 +33,8 @@ import { datasetRoutes } from './routes/datasets';
 import { countryRoutes } from './routes/countries';
 import type { CountryService } from './services/country-service';
 import { settingsRoutes } from './routes/settings';
+import type { PageService } from './pages/page-service';
+import { pageRoutes } from './routes/pages';
 
 /**
  * External dependencies the app needs. Passed in (instead of created here)
@@ -51,6 +53,7 @@ export interface AppDeps {
   settingsService: SettingsService;
   datasetService: DatasetService;
   countryService: CountryService;
+  pageService: PageService;
 }
 
 /**
@@ -129,6 +132,7 @@ export async function buildApp(env: Env, deps: AppDeps): Promise<FastifyInstance
         await protectedApi.register(datasetRoutes(deps.datasetService), {
           prefix: '/datasets',
         });
+        await protectedApi.register(pageRoutes(deps.pageService), { prefix: '/pages' });
         await protectedApi.register(countryRoutes(deps.countryService), {
           prefix: '/countries',
         });

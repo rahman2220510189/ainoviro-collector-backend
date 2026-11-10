@@ -1,3 +1,4 @@
+import type { PageService } from '../src/pages/page-service';
 import type { AppDeps } from '../src/app';
 import type { Env } from '../src/config/env';
 import type { AdminRecord, AuthStore } from '../src/auth/store';
@@ -583,6 +584,51 @@ export function createFakeCountryService(): FakeCountryService {
   return service;
 }
 
+/** Page service fake (step 7.6): records calls, returns fixed data. */
+export function createFakePageService(): PageService & {
+  removals: unknown[];
+  statuses: unknown[];
+} {
+  const removals: unknown[] = [];
+  const statuses: unknown[] = [];
+  return {
+    removals,
+    statuses,
+    config: () => ({
+      types: [{ key: 'barber', label: 'Barber', overture: ['barber'] }],
+      areas: [{ key: 'limassol', label: 'Limassol', match: ['limassol'] }],
+    }),
+    records: async () => [],
+    preview: async (f) => ({
+      country: f.country,
+      byType: [{ type: 'barber', label: 'Barber', areas: { limassol: 3 }, total: 3 }],
+      areas: [{ key: 'limassol', label: 'Limassol' }],
+      total: 3,
+      withPhone: 2,
+      withEmail: 1,
+      withWebsiteOrSocial: 2,
+      usesBookingPlatform: { 'fresha.com': 1 },
+      pages: { published: 0, claimed: 0, removed: 0 },
+      removalRequests: 0,
+    }),
+    exportFile: async (_f, format) => ({
+      filename: `ainoviro-pages-cy-2026-11-10.${format}`,
+      contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+      body: format === 'csv' ? 'collector_id\r\n' : '{"records":[]}',
+      count: 0,
+    }),
+    requestRemoval: async (input) => {
+      removals.push(input);
+      return { removalId: removals.length, placesMatched: 1, emailsSuppressed: 1 };
+    },
+    listRemovals: async () => [],
+    setStatuses: async (input) => {
+      statuses.push(input);
+      return { updated: input.items.length, unknown: [] };
+    },
+  };
+}
+
 export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
   return {
     checkDatabase: async () => {},
@@ -597,6 +643,7 @@ export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     settingsService: createFakeSettingsService(),
     datasetService: createFakeDatasetService(),
     countryService: createFakeCountryService(),
+    pageService: createFakePageService(),
     ...overrides,
   };
 }

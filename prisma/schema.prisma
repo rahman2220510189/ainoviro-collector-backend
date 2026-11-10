@@ -357,6 +357,8 @@ model Place {
 
   sources       PlaceSource[]
   subcategories PlaceSubcategory[]
+  businessPage  BusinessPage?
+  pageRemovals  PageRemoval[]
   emails        Email[]
   exportItems   ExportBatchItem[]
   jobTasks      JobTask[]
@@ -815,4 +817,47 @@ model HealthSnapshot {
 
   @@index([countryCode, takenAt], map: "health_snapshots_country_taken_idx")
   @@map("health_snapshots")
+}
+
+/// Step 7.6: state of the ainoviro page for a place, as reported by the platform.
+enum PageStatus {
+  PUBLISHED
+  CLAIMED
+  REMOVED
+
+  @@map("page_status")
+}
+
+model BusinessPage {
+  placeId   Int        @id @map("place_id")
+  place     Place      @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  status    PageStatus
+  pageUrl   String?    @map("page_url")
+  claimedAt DateTime?  @map("claimed_at") @db.Timestamptz(3)
+  note      String?
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime   @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status], map: "business_pages_status_idx")
+  @@map("business_pages")
+}
+
+/// Step 7.6: "remove my page" requests. Matched by place, Overture id, phone or domain.
+model PageRemoval {
+  id            Int      @id @default(autoincrement())
+  placeId       Int?     @map("place_id")
+  place         Place?   @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  overtureId    String?  @map("overture_id")
+  phoneE164     String?  @map("phone_e164")
+  websiteDomain String?  @map("website_domain")
+  name          String?
+  reason        String?
+  requestedVia  String?  @map("requested_via")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([placeId], map: "page_removals_place_idx")
+  @@index([overtureId], map: "page_removals_overture_idx")
+  @@index([phoneE164], map: "page_removals_phone_idx")
+  @@index([websiteDomain], map: "page_removals_domain_idx")
+  @@map("page_removals")
 }

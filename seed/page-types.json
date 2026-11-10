@@ -1,0 +1,15 @@
+{
+  "about": "Business types and areas for the claimable ainoviro pages (Marketplace Plan, launch: appointment services in Limassol and Larnaca). A place belongs to a type when its Overture taxonomy_primary is in the list. Areas match the place's district or city name (lowercase, any of the spellings). Edit and redeploy to change the launch scope.",
+  "types": [
+    { "key": "hair_salon", "label": "Hair salon", "overture": ["hair_salon", "hair_extensions", "hair_replacement"] },
+    { "key": "barber", "label": "Barber", "overture": ["barber"] },
+    { "key": "beauty_salon", "label": "Beauty salon", "overture": ["beauty_salon", "personal_or_beauty_service", "skin_care_and_makeup", "makeup_artist", "tanning_salon", "hair_removal", "laser_hair_removal", "waxing"] },
+    { "key": "nail_salon", "label": "Nail salon", "overture": ["nail_salon"] },
+    { "key": "massage_spa", "label": "Massage and spa", "overture": ["massage_therapy", "spa", "day_spa", "health_spa", "medical_spa"] },
+    { "key": "clinic", "label": "Clinic", "overture": ["dental_clinic", "general_dentistry", "cosmetic_dentistry", "orthodontics", "pediatric_dentistry", "periodontics", "endodontics", "dermatology"] }
+  ],
+  "areas": [
+    { "key": "limassol", "label": "Limassol", "match": ["limassol", "lemesos", "λεμεσός", "λεμεσος"] },
+    { "key": "larnaca", "label": "Larnaca", "match": ["larnaca", "larnaka", "λάρνακα", "λαρνακα"] }
+  ]
+}
