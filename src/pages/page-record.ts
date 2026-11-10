@@ -1,4 +1,5 @@
 import { normalizePhone } from '../cleaning/phone';
+import { platformDomainOfHost } from '../cleaning/platforms';
 import { analyzeWebsite } from '../cleaning/website';
 import type { PageArea, PageType } from './page-types';
 
@@ -213,7 +214,7 @@ export function buildPageRecord(input: {
         if (src === fromFsq) usedFsq = true;
       }
     } else if (info.platform === 'BOOKING' && !bookingPlatform) {
-      bookingPlatform = host.replace(/^www\./, '');
+      bookingPlatform = platformDomainOfHost(host) ?? host.replace(/^www\./, '');
       sources.bookingPlatform = src;
       if (src === fromFsq) usedFsq = true;
     }

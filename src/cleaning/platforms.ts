@@ -85,3 +85,17 @@ export function platformKindOfHost(host: string): PlatformKind | null {
   const brand = BRAND_PATTERN.exec(clean);
   return brand?.[1] ? (PLATFORM_BRANDS[brand[1]] ?? null) : null;
 }
+/**
+ * The platform's own domain for a host on a known platform list:
+ * "n834470.alteg.io" -> "alteg.io", "goldfingers.setmore.com" -> "setmore.com".
+ * Null for ordinary websites.
+ */
+export function platformDomainOfHost(host: string): string | null {
+  let candidate = host.toLowerCase().replace(/\.$/, '');
+  for (;;) {
+    if (HOST_TO_KIND.has(candidate)) return candidate;
+    const dot = candidate.indexOf('.');
+    if (dot === -1) return null;
+    candidate = candidate.slice(dot + 1);
+  }
+}

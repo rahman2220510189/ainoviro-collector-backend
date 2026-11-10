@@ -122,6 +122,21 @@ describe('page record (open data only)', () => {
       area: limassol,
     })!;
     expect(r.bookingPlatform).toBe('fresha.com');
+    // Sub-domains of a platform are grouped under the platform itself.
+    for (const [url, platform] of [
+      ['https://n834470.alteg.io/company/1', 'alteg.io'],
+      ['https://goldfingers.setmore.com', 'setmore.com'],
+      ['https://pikmicy.easyweek.io/', 'easyweek.io'],
+    ])
+      expect(
+        buildPageRecord({
+          place: place(),
+          overture: ovt({ websites: [url], socials: [] }),
+          foursquare: null,
+          type: barber,
+          area: limassol,
+        })!.bookingPlatform,
+      ).toBe(platform);
     expect(r.website).toBeNull();
     expect(r.phone).toBe('+35725123456');
     expect(r.sources.phone).toMatchObject({ source: 'foursquare', recordId: 'fsq-9' });
