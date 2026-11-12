@@ -17,6 +17,7 @@ import {
   parsePageTypes,
   typeOfOvertureCategory,
 } from '../src/pages/page-types';
+import { leadFiltersSchema } from '../src/leads/lead-service';
 import { createFakeAuthStore, createFakePageService, testDeps, testEnv } from './helpers';
 
 const config = loadPageTypes();
@@ -127,7 +128,7 @@ describe('page record (open data only)', () => {
       ['https://n834470.alteg.io/company/1', 'alteg.io'],
       ['https://goldfingers.setmore.com', 'setmore.com'],
       ['https://pikmicy.easyweek.io/', 'easyweek.io'],
-    ])
+    ] as const)
       expect(
         buildPageRecord({
           place: place(),
@@ -264,5 +265,13 @@ describe('pages API', () => {
       },
     });
     expect(st.json().result).toEqual({ updated: 1, unknown: [] });
+  });
+});
+
+describe('leads list: Google rating (step 7.6c)', () => {
+  it('accepts the hasRating filter', () => {
+    expect(leadFiltersSchema.parse({ hasRating: 'yes' }).hasRating).toBe('yes');
+    expect(leadFiltersSchema.parse({}).hasRating).toBeUndefined();
+    expect(() => leadFiltersSchema.parse({ hasRating: 'maybe' })).toThrow();
   });
 });

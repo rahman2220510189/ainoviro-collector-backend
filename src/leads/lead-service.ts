@@ -37,6 +37,8 @@ export const leadFiltersSchema = z.object({
   chain: yesNo,
   /** The business already sells online (its website shows a shop, cart or marketplace shop). */
   sellsOnline: yesNo,
+  /** Has a Google rating (only places found through Google jobs have one). */
+  hasRating: yesNo,
   /** Default "yes": the leads list shows businesses with an email; "any" shows all places. */
   hasEmail: z.enum(['yes', 'no', 'any']).default('yes'),
   /** Searches the name, email and website. */
@@ -65,6 +67,9 @@ export interface LeadRow {
   exportedAt: Date | null;
   /** Shop system, cart or marketplace shop found on its website (step 6.3). */
   onlineSignals: string[];
+  /** Google rating and review count; null when the place was not found through Google. */
+  rating: number | null;
+  ratingCount: number | null;
 }
 
 export interface LeadPage {
@@ -178,6 +183,7 @@ function whereSql(f: LeadFilters): { sql: string; params: unknown[] } {
         ? 'EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)'
         : 'NOT EXISTS (SELECT 1 FROM domain_shop_checks sc WHERE sc.domain = p.website_domain AND sc.sells_online)',
     );
+  if (f.hasRating) parts.push(f.hasRating === 'yes' ? 'p.rating IS NOT NULL' : 'p.rating IS NULL');
   if (f.exported === 'new') parts.push('e.exported_at IS NULL');
   if (f.exported === 'exported') parts.push('e.exported_at IS NOT NULL');
   if (f.q)
@@ -231,11 +237,13 @@ export function createLeadService(db: Pool): LeadService {
         is_chain: boolean;
         exported_at: Date | null;
         online_signals: string[] | null;
+        rating: number | string | null;
+        rating_count: number | null;
       }>(
         `SELECT p.id, p.name, e.email_normalized AS email, e.email_type, e.is_own_domain,
                 (SELECT count(*) FROM emails x WHERE x.place_id = p.id AND NOT x.is_primary) AS extra_emails,
                 p.phone_e164, p.website, p.city_name, p.score, p.status, p.needs_review,
-                p.review_reasons, p.is_chain, e.exported_at,
+                p.review_reasons, p.is_chain, e.exported_at, p.rating, p.rating_count,
                 (SELECT sc.signals FROM domain_shop_checks sc
                    WHERE sc.domain = p.website_domain AND sc.sells_online) AS online_signals,
                 (SELECT c.display_name FROM place_subcategories ps JOIN subcategories s ON s.id = ps.subcategory_id
@@ -265,6 +273,8 @@ export function createLeadService(db: Pool): LeadService {
           isChain: r.is_chain,
           exportedAt: r.exported_at,
           onlineSignals: r.online_signals ?? [],
+          rating: r.rating === null ? null : Number(r.rating),
+          ratingCount: r.rating_count,
         })),
         total: Number(total.rows[0]?.n ?? 0),
         page: f.page,
